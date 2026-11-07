@@ -71,7 +71,7 @@ Ruth, 81, lives alone in apartment 4A on West 115th Street. She gets up in the n
 6. "I'm her neighbor, we're taking her to the hospital now." 911 and Priya get a text with that quote. The map shows "with her," then "hospital," and the incident closes.
 
 **Acceptance:**
-- First ask at most 5 s after the 3 s hold.
+- First ask at most 5 s after the 10 s hold.
 - Every outbound message sent within 5 s of the last ask.
 - A reply reaches the map within 3 s.
 - The quote reaches the texts within 10 s.
@@ -110,9 +110,9 @@ CareBot acts only on what it sees happen. Ruth being out of view is not an emerg
 - **Ruth walks out of frame** into another room or the bathroom. Nothing happens: there's no "missing" alert and no stillness timer. The head returns to its home pose and waits. When she walks back in, the face lock picks her up again.
 - **Stillness counts only while Ruth is in view.**
 - **An alert starts only when the camera sees a fall** (the hip drop and the torso angle) **and she doesn't get back up**. That means one of two things:
-  - She stays down in view for `fall_hold_s` (3 s).
+  - She stays down in view for `fall_hold_s` (10 s).
   - She drops out of frame during or right after the fall (behind the bed, below the camera) and doesn't reappear upright within `fall_out_of_view_s` (10 s).
-- **She falls and stands back up** within the hold. There's no check-in, and the event is logged locally as `fall_recovered`.
+- **She falls and stands back up** within the hold (10 s). There's no check-in, and the event is logged locally as `fall_recovered`.
 - **A fall in another room is never seen**, so it never raises an alert. We say so plainly under [Where we don't help](#where-we-dont-help).
 
 ## The button
@@ -254,7 +254,7 @@ CLOSED ──► MONITORING
 
 Thresholds live in YAML and are never hard-coded.
 
-- **Fall.** The hip midpoint drops at least 0.25 of the frame height within 1 s, and the torso is at least 60 degrees from upright. Then either she stays down for `fall_hold_s` (3 s), or she leaves the frame and doesn't reappear upright within `fall_out_of_view_s` (10 s). The servos freeze once a possible fall is detected, so the camera doesn't move while the drop is measured.
+- **Fall.** The hip midpoint drops at least 0.5 torso lengths within 1.2 s, and the torso tips at least 45 degrees from upright while dropping. Measuring in body sizes keeps it independent of distance; a fall onto a sofa counts, lying down slowly doesn't. Then either she stays down for `fall_hold_s` (10 s), or she leaves the frame and doesn't reappear upright within `fall_out_of_view_s` (10 s). The servos freeze once a possible fall is detected, so the camera doesn't move while the drop is measured.
 - **Stillness.** Only the resident, only while she's in view: mean keypoint motion stays under the threshold for `stillness_s` (30 s for the demo).
 
 ### Messages (MQTT)

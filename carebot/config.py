@@ -22,4 +22,13 @@ def load_config(path: str | Path = "config/mock.yaml") -> dict[str, Any]:
     cfg = load_yaml(path)
     cfg.setdefault("hardware", "mock")
     cfg["hw"] = load_yaml(cfg["hardware_config"]) if cfg["hardware"] == "pi" else {}
+    cfg["detectors"] = _deep_merge(load_yaml(cfg.get("detectors_config", "config/detectors.yaml")),
+                                   cfg.get("detectors") or {})
     return cfg
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    out = dict(base)
+    for k, v in override.items():
+        out[k] = _deep_merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out

@@ -119,9 +119,10 @@ The button stops the beeping and pauses escalation. It never closes an alert by 
 
 Thresholds live in YAML and are never hard-coded.
 
-- **Fall:** the hip midpoint drops at least 0.25 of frame height within 1 s, AND the torso is at least
-  60 degrees from upright. Then:
-  - she stays down for `fall_hold_s` (3 s), OR
+- **Fall:** the hip midpoint drops at least 0.5 torso lengths within 1.2 s, AND the torso tips at
+  least 45 degrees from upright while dropping (measured in body sizes, so distance doesn't matter;
+  a fall onto a sofa counts, lying down slowly doesn't). Then:
+  - she stays down for `fall_hold_s` (10 s), OR
   - she leaves the frame and doesn't reappear upright within `fall_out_of_view_s` (10 s).
 
   Standing back up within the hold means no alert (`fall_recovered`). The servos freeze once a fall

@@ -1,3 +1,7 @@
-# Laptop + robot (pure Python). Pi-only packages go in requirements-pi.txt.
+# Laptop + robot. Pi-only driver packages go in requirements-pi.txt.
 pyyaml>=6.0
 pytest>=8.0
+
+# Vision: YOLO11n-pose + ByteTrack (pulls in torch, opencv-python, numpy)
+ultralytics>=8.3
+lap>=0.5

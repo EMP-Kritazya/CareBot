@@ -1,0 +1,45 @@
+# Vision thresholds: pose filtering, falls, stillness. Shared by config/mock.yaml and config/pi.yaml.
+# A run config can override any of these under its own `detectors:` key.
+# Tune on labeled clips with `python -m apps.score`, then commit the numbers here.
+
+pose:                       # which YOLO detections count as a real person
+  conf: 0.5                 # detection confidence
+  min_keypoints: 6          # at least this many keypoints...
+  min_keypoint_conf: 0.5    # ...at this confidence (a raised hand alone has 2-3)
+  min_box_frac: 0.12        # box taller or wider than this fraction of the frame
+  nested_area_frac: 0.35    # a box under this share of another person's box...
+  nested_overlap: 0.8       # ...and this much inside it is a body part, not a second person
+
+min_kp_conf: 0.3            # ignore keypoints below this confidence
+lying_deg: 60               # torso this far from upright = lying
+sitting_knee_ratio: 0.35    # knees within this many torso lengths below the hips = sitting
+
+fall:
+  drop_torso: 0.5           # hip midpoint drops >= this many torso lengths (onto a sofa is ~0.8)...
+  drop_window_s: 1.2        # ...within this long (lying down on purpose is slower than this)
+  torso_deg: 45             # and the torso tips at least this far from upright while dropping
+  hold_s: 10.0              # then stays down this long (in view); she gets this long to get back up
+  out_of_view_s: 10.0       # or vanishes and doesn't come back upright within this long
+  vanish_after_drop_s: 0.7  # a fast drop then vanishing (behind the bed) counts as a fall start
+  recover_torso_deg: 35     # back up = torso under this...
+  recover_frac: 0.5         # ...and hips regained at least this share of the drop
+  reappear_radius: 0.3      # a new upright track this close to where they vanished = the same person
+  approach_growth: 1.2      # torso grew this much during the drop = walking toward the camera
+
+stillness:
+  seconds: 30               # demo value; a real deployment would use minutes
+  motion_threshold: 0.08    # moved this many torso lengths (median keypoint)...
+  window_s: 1.0             # ...compared with any pose from the last window_s = not still
+  min_kp_conf: 0.5          # movement is measured only on confident keypoints (hidden joints jitter)
+  postures: [sitting, upright, upper_body]   # upper_body: hips hidden, head above shoulders
+                            # lying still is sleeping; lying on the floor is the fall detector's job
+
+identity:                   # face lock: which tracked person is the resident
+  enrolled: data/faces/resident.npz   # made by `python -m apps.enroll` (local only, git-ignored)
+  match_threshold: 0.363    # SFace cosine similarity at or above this = the resident (OpenCV's value)
+  reject_threshold: 0.2     # a clear face below this = definitely someone else
+  every_n_frames: 5         # how often faces are checked; the track carries the lock in between
+  relock_after_s: 2.0       # lock is released this long after the resident's track disappears
+  assume_single_is_resident: true   # no lock + exactly one person in view = assume it's her
+  face_score: 0.6           # YuNet face detection confidence
+  min_face_px: 20           # skip head crops smaller than this (too far to recognize)
