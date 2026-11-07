@@ -1,0 +1,16 @@
+# Robot config (Pi 5). Hardware settings live in config/hardware_pi.yaml.
+hardware: pi
+hardware_config: config/hardware_pi.yaml   # only read when hardware: pi
+
+unit_id: robot-4A
+profile:
+  resident_name: Ruth
+  resident_age: 81
+  lives_alone: true
+  family_name: Priya
+  address: "West 115th Street, apartment 4A, New York, NY"
+  access_note: "Neighbor Daniel has a key."
+
+check_in:
+  asks: 2                  # spoken asks before escalating
+  listen_s: 15             # how long to wait for an answer after each ask

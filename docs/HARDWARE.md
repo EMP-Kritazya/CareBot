@@ -7,11 +7,9 @@ into the app with no integration work.
 
 Also read the root `CLAUDE.md` (project rules) and `PLAN.md` (what the robot does and why).
 
-> **Status: these files don't exist yet.** This document describes the target layout. In the first
-> hour, the software side creates `carebot/hw/base.py`, `mock.py`, the factory, an empty
-> `config/hardware_pi.yaml` seeded from the template below, and the `notes/` files. **Start coding
-> drivers only after those are pushed.** Until then, wire the robot, flash the Pi, and get the
-> overlays and Bluetooth working. None of that needs the repo.
+> **Status:** the contract files (`base.py`, `mock.py`, the factory, `config/hardware_pi.yaml`,
+> `notes/`) are pushed. `tests/test_hw_contract.py` checks your drivers against `base.py`
+> automatically, so run `python -m pytest` on a laptop before every push.
 
 ## Paste this to your Claude to start
 

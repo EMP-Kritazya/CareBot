@@ -1,0 +1,2 @@
+# Pi-only packages for the hardware drivers. Owned by Hardware (see docs/HARDWARE.md).
+# Install on the robot: pip install -r requirements.txt -r requirements-pi.txt

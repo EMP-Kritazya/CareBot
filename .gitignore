@@ -1,0 +1,20 @@
+# Secrets
+.env
+.env.local
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local-only data: faces never leave the robot, recordings stay local
+data/faces/
+recordings/
+*.ncnn/
+*_ncnn_model/
+models/
+
+# OS / editor
+.DS_Store
+.vscode/

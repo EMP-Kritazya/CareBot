@@ -1,0 +1,38 @@
+# Robot hardware settings. Owned by Hardware (see docs/HARDWARE.md).
+# Every number the Pi drivers use lives here. Calibrate on the real robot and commit the result.
+
+pantilt:
+  pwm_chip: 0              # check /sys/class/pwm (Pi 5: often 0 on kernel 6.6+, 2 on older)
+  pan:  {channel: 0, gpio: 12, min_us: 500, max_us: 2500, center_trim_deg: 0, limit_deg: [-80, 80], invert: false}
+  tilt: {channel: 1, gpio: 13, min_us: 500, max_us: 2500, center_trim_deg: 0, limit_deg: [-30, 45], invert: false}
+  home_deg: [0, 0]
+  settle_ms: 250
+  hz: 50
+
+eyes:
+  num_pixels: 12
+  spi_bus: 0               # SPI0 MOSI = GPIO 10
+  pixel_order: GRB
+  max_brightness: 0.3
+
+buzzer:
+  gpio: 17
+  type: active             # active | passive
+  passive_hz: 2800         # only used when type is passive
+  alarm_on_ms: 400
+  alarm_off_ms: 300
+
+button:
+  gpio: 27
+  pull_up: true            # button wired between GPIO 27 and GND
+  bounce_ms: 50
+
+camera:
+  index: 0                 # /dev/video0
+  rotate: 0                # 0 | 90 | 180 | 270, if the head mounts the webcam rotated
+
+audio:
+  output: "default"        # set to the JBL's PipeWire sink name from `wpctl status`
+  output_fallback: "default"
+  input: "default"         # INMP441 from `arecord -l`; webcam mic until it arrives
+  input_rate: 16000

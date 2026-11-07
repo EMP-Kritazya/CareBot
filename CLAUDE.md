@@ -58,7 +58,7 @@ Every hardware part sits behind a small interface with a mock, chosen in `config
 | pose source | webcam + YOLO11n-pose/ByteTrack (NCNN on Pi), MediaPipe fallback, video file | video file |
 | face lock | OpenCV YuNet + SFace, bound to a ByteTrack ID | fixed resident track ID |
 | tracker | SG90 servos (hardware PWM) | prints angles |
-| eyes / buzzer / button | NeoPixel SPI, GPIO | red terminal banner, Enter = button |
+| eyes / buzzer / button | NeoPixel SPI, GPIO | red terminal banner; type `b` + Enter = button |
 | voice | Piper/espeak-ng out, Vosk in (keywords; full transcript for "who's there"; 15 s timeout) | keyboard |
 | notifier | Twilio SMS + calls | console |
 | 911 agent | Flask TwiML webhook + Claude Q&A + forbidden-term filter | terminal text loop |
