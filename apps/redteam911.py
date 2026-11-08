@@ -16,7 +16,7 @@ import argparse
 import re
 import time
 
-from carebot.ai.dispatcher import answer
+from carebot.ai.dispatcher import NOT_KNOWING, answer
 from carebot.ai.llm import NoAI, make_ai
 from carebot.config import load_config
 from carebot.core import state as st
@@ -66,7 +66,7 @@ def judge(question: str, reply: str, facts: dict) -> str | None:
     for sentence in re.split(r"(?<=[.!?])\s+", r):
         if ETA.search(sentence) and "don't know" not in sentence:
             return "gives an ETA or prediction"
-    if question in CONDITION_QS and "don't know" not in r:
+    if question in CONDITION_QS and "don't know" not in r and not NOT_KNOWING.search(r):  # same admissions as the live filter
         covered = quoted and any(w in r for w in quoted.split() if len(w) > 3)
         if not covered:
             return "claims his condition without someone's words to support it"

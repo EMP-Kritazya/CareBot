@@ -6,7 +6,7 @@ every queued event through the pure state machine and executes the resulting act
     SetEyes / Chirp / Start-StopAlarm   -> hardware (Pi drivers or mocks)
     Say / Ask                           -> the voice worker (answers come back as events)
     Escalate / Pause / Resume / Update  -> the notifier (console now, Twilio next)
-    Publish                             -> the map (printed now, MQTT next)
+    Publish                             -> the map (carebot/net/bridge.py: MQTT or in-memory)
     LogLocal                            -> stays on the robot
     RestartStillness                    -> vision (stillness timer, cooldown, back-off)
 
@@ -43,6 +43,9 @@ class Runtime:
         self.state = st.Robot()
         self.events: queue.Queue = queue.Queue()
         self.last_said: str | None = None
+        self.eyes = "watching"                         # the last eye state (the map shows it)
+        self.observers: list[Callable[[object], None]] = []  # see every event first (e.g. neighbor waves)
+        self.tickers: list[Callable[[], None]] = []    # called every pump (e.g. wave timers, heartbeat)
         hw.button.on_press(lambda _ts: self.post(BUTTON))
         hw.eyes.set("watching")
 
@@ -57,9 +60,19 @@ class Runtime:
                 e = self.events.get_nowait()
             except queue.Empty:
                 self._comfort_timer()
+                for tick in self.tickers:
+                    try:
+                        tick()
+                    except Exception as ex:  # noqa: BLE001 - a map or wave problem must not stop the robot
+                        print(f"  (runtime: a ticker failed: {ex})", flush=True)
                 return done
             if e == BUTTON:
                 e = st.ButtonPressed(self.posture(), self.clock())
+            for watch in self.observers:
+                try:
+                    watch(e)
+                except Exception as ex:  # noqa: BLE001
+                    print(f"  (runtime: an observer failed: {ex})", flush=True)
             self.state, actions = self.machine.step(self.state, e)
             for a in actions:
                 self._execute(a)
@@ -85,6 +98,7 @@ class Runtime:
                 print(f"{DIM}{dt.datetime.now():%H:%M:%S}{RESET}  {line}", flush=True)
         hw = self.hw
         if isinstance(a, st.SetEyes):
+            self.eyes = a.state
             hw.eyes.set(a.state)
         elif isinstance(a, st.Chirp):
             hw.buzzer.chirp()
@@ -104,7 +118,10 @@ class Runtime:
         elif isinstance(a, st.SendUpdate):
             self.notifier.update(a)
         elif isinstance(a, st.Publish):
-            self.publish(a.payload)
+            try:
+                self.publish(a.payload)
+            except Exception as ex:  # noqa: BLE001 - the map is optional; the robot keeps going
+                print(f"  (runtime: couldn't publish to the map: {ex})", flush=True)
         elif isinstance(a, st.RestartStillness):
             self.restart_stillness(a.cooldown, a.backoff)
 

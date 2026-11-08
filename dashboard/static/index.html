@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CareBot Response Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-phone" viewBox="0 0 24 24"><path d="M5.5 4h3l1.8 4.6-2.3 1.4a10.5 10.5 0 005 5l1.4-2.3 4.6 1.8v3a2 2 0 01-2.2 2A15.5 15.5 0 013.5 6.2 2 2 0 015.5 4z"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4.5 5.5h15v10h-9l-6 4.5z"/></symbol>
+  <symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="M12 12l5.5-5.5"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5"/></symbol>
+</svg>
+
+<div class="app" id="app">
+  <main class="stage">
+    <div id="map" aria-label="Map: Sandy's home and the neighbors with CareBot receivers"></div>
+
+    <div class="overlay mode-bar" role="group" aria-label="Map mode">
+      <div class="seg">
+        <button id="mode-live" aria-pressed="true">Live</button>
+        <button id="mode-manual" aria-pressed="false">Manual</button>
+      </div>
+      <p class="hint" id="mode-hint">Following robot-4A. Alerts come from its camera.</p>
+    </div>
+
+    <div class="overlay legend" aria-label="Legend">
+      <span><i class="lg home"></i>Sandy</span>
+      <span><i class="lg idle"></i>Receiver</span>
+      <span><i class="lg ringing"></i>Ringing</span>
+      <span><i class="lg accepted"></i>Responding</span>
+      <span><i class="lg declined"></i>Declined / no answer</span>
+    </div>
+  </main>
+
+  <aside class="panel">
+    <header class="head">
+      <div>
+        <h1>CareBot <span>Response Console</span></h1>
+        <p class="meta mono" id="unit">robot-4A</p>
+      </div>
+      <div class="link" id="link"><span class="dot"></span><span class="mono" id="link-text">connecting</span></div>
+    </header>
+
+    <section class="incident" id="incident" data-state="idle" aria-live="polite">
+      <div class="inc-main">
+        <span class="beacon"></span>
+        <div>
+          <p class="inc-title" id="inc-title">Monitoring</p>
+          <p class="inc-sub" id="inc-sub">Sandy · West 115th Street (block level)</p>
+        </div>
+      </div>
+      <div class="inc-clock mono" id="inc-clock"></div>
+    </section>
+
+    <section>
+      <h2>Dispatch</h2>
+      <ul class="dispatch">
+        <li id="d-911"><svg class="ico"><use href="#i-phone"/></svg>
+          <div class="d-text"><p class="d-name">911 <span>call · stand-in phone</span></p><p class="d-sub">Waiting</p></div>
+          <span class="st idle">Idle</span></li>
+        <li id="d-family"><svg class="ico"><use href="#i-chat"/></svg>
+          <div class="d-text"><p class="d-name"><span class="fam" id="family-label">Suyog</span> <span id="family-chan">son · text</span></p><p class="d-sub">Waiting</p></div>
+          <span class="st idle">Idle</span></li>
+        <li id="d-neighbors"><svg class="ico"><use href="#i-radar"/></svg>
+          <div class="d-text"><p class="d-name">Neighbors <span>nearest by walking time</span></p><p class="d-sub">Waiting</p></div>
+          <span class="st idle">Idle</span></li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Responders <span class="mono" id="resp-count"></span></h2>
+      <table class="resp">
+        <thead><tr><th>#</th><th>Neighbor</th><th class="num">Dist.</th><th class="num">Walk</th><th>Status</th></tr></thead>
+        <tbody id="resp-body"></tbody>
+      </table>
+    </section>
+
+    <section class="log-sec">
+      <h2>Event log</h2>
+      <ol class="log mono" id="log"></ol>
+    </section>
+
+    <footer class="foot">
+      <p><svg class="ico"><use href="#i-lock"/></svg>Video never leaves the robot; this console receives JSON events only.
+        <span id="sim-note"></span> <button class="linkish" id="show-raw">Raw messages</button></p>
+      <pre class="raw mono" id="raw" hidden></pre>
+    </footer>
+  </aside>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

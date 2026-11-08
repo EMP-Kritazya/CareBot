@@ -22,17 +22,17 @@ def test_add_keeps_only_the_newest_samples():
 
 def test_save_then_add_round_trip(tmp_path):
     path = tmp_path / "faces" / "resident.npz"
-    assert save_face(path, "Ruth", np.ones((16, 128)), "new") == 16
-    assert save_face(path, "Ruth", np.ones((8, 128)), "add") == 24
+    assert save_face(path, "Sandy", np.ones((16, 128)), "new") == 16
+    assert save_face(path, "Sandy", np.ones((8, 128)), "add") == 24
     data = np.load(path)
-    assert str(data["name"]) == "Ruth" and "updated" in data
-    assert save_face(path, "Ruth", np.ones((16, 128)), "new") == 16  # recalibrate from scratch
+    assert str(data["name"]) == "Sandy" and "updated" in data
+    assert save_face(path, "Sandy", np.ones((16, 128)), "new") == 16  # recalibrate from scratch
 
 
 class FakeMatcher:
     """One face in view; its 'embedding' is a constant vector; similarity is configurable."""
 
-    name = "Ruth"
+    name = "Sandy"
     ready = True
 
     def __init__(self, sim=0.9, face_px=120, faces=1):
@@ -67,7 +67,7 @@ def test_add_refuses_a_different_person():
     e = collect(Enroller(FakeMatcher(sim=0.05), mode="add"))
     assert e.samples == []
     _, msg, ok = e.step(IMG)
-    assert not ok and "doesn't look like the saved Ruth" in msg
+    assert not ok and "doesn't look like the saved Sandy" in msg
 
 
 def test_add_accepts_her_from_farther_away():

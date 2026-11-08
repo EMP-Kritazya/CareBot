@@ -271,6 +271,32 @@ def test_sms_delivery_report_explains_a_block(capsys):
 
 
 
+def test_family_text_by_whatsapp_uses_the_sandbox_sender():
+    client = FakeClient()
+    client.messages = FakeMessages()
+    n = TwilioNotifier(PROFILE, lambda e: None, client=client, env=ENV, family_via="sms", text_via="whatsapp")
+    n._escalate(alerted_incident(), include_neighbors=True, family_only=False)
+    m = client.messages.sent[0]
+    assert m["to"] == "whatsapp:" + ENV["FAMILY_PHONE"] and m["from_"] == "whatsapp:+14155238886"
+    assert "Sandy may have fallen" in m["body"]
+
+
+def test_whatsapp_sender_can_be_set_and_both_still_calls():
+    client = FakeClient()
+    client.messages = FakeMessages()
+    env = dict(ENV, TWILIO_WHATSAPP_FROM="+15551112222")
+    n = TwilioNotifier(PROFILE, lambda e: None, client=client, env=env, family_via="both", text_via="whatsapp")
+    n._escalate(alerted_incident(), include_neighbors=True, family_only=False)
+    assert client.messages.sent[0]["from_"] == "whatsapp:+15551112222"
+    assert ENV["FAMILY_PHONE"] in [c["to"] for c in client.calls.made]  # a normal phone call too
+
+
+def test_whatsapp_report_explains_sandbox_errors(capsys):
+    handle("/twilio/sms-status", {"label": "Suyog (family)"}, {"MessageStatus": "failed", "ErrorCode": "63016"},
+           lambda e: None, PROFILE, None, None)
+    assert "24-hour" in capsys.readouterr().out
+
+
 # ---------------------------------------------------------------- wait for a real person (live feedback)
 
 def test_call_screener_gets_the_opening_again_not_the_message():
@@ -301,3 +327,75 @@ def test_911_remembers_the_conversation_on_each_call():
         handle("/twilio/psap", {"inc": "i"}, {"SpeechResult": q, "CallSid": "CA1"}, lambda e: None, PROFILE, ask,
                "https://x", hist)
     assert seen[1] == [("What happened?", "answer to What happened?")]
+
+
+
+# ---------------------------------------------------------------- never hang up on 911 (live feedback)
+
+def test_911_answer_never_hangs_up_when_the_dispatcher_is_quiet():
+    from carebot.escalate.twilio_calls import ask_twiml
+    twiml = ask_twiml("He is lying on the floor. Anything else?", "https://x/twilio/psap?inc=1")
+    assert "Goodbye" not in twiml and "<Hangup" not in twiml
+    assert "<Redirect" in twiml and "quiet=1" in twiml
+
+
+def test_quiet_dispatcher_keeps_the_line_and_is_reminded_now_and_then():
+    from carebot.escalate.twilio_calls import HOLD_MAX, HOLD_REMIND_EVERY
+    args = (lambda e: None, PROFILE, None, "https://x")
+    silent = handle("/twilio/psap", {"inc": "i", "quiet": "1"}, {}, *args)
+    assert "<Gather" in silent and "still on the line" not in silent and "quiet=2" in silent
+    remind = handle("/twilio/psap", {"inc": "i", "quiet": str(HOLD_REMIND_EVERY)}, {}, *args)
+    assert "still on the line" in remind
+    done = handle("/twilio/psap", {"inc": "i", "quiet": str(HOLD_MAX)}, {}, *args)
+    assert "<Gather" not in done and "call back" in done   # only after about 20 minutes of silence
+
+
+class LiveCalls(FakeCalls):
+    """calls.create(...) like FakeCalls, plus calls(sid).fetch() / .update(twiml=...)."""
+
+    def __init__(self, status="in-progress"):
+        super().__init__()
+        self.status, self.updates = status, []
+
+    def __call__(self, sid):
+        outer = self
+
+        class One:
+            def fetch(self):
+                return type("C", (), {"status": outer.status})()
+
+            def update(self, **kw):
+                outer.updates.append((sid, kw["twiml"]))
+        return One()
+
+
+def test_update_is_spoken_into_the_open_911_call():
+    client = FakeClient()
+    client.calls = LiveCalls("in-progress")
+    n = TwilioNotifier(PROFILE, lambda e: None, client=client, env=ENV, public_url="https://x")
+    n.psap_calls["inc-1"] = "CA-open"
+    n._update_911("inc-1", 'someone at the device said: "we\'re taking him to the hospital"')
+    assert client.calls.made == []                       # no second call
+    sid, twiml = client.calls.updates[0]
+    assert sid == "CA-open" and "hospital" in twiml and "<Gather" in twiml and "Goodbye" not in twiml
+
+
+def test_update_calls_911_again_if_the_call_ended_and_that_call_stays_open():
+    client = FakeClient()
+    client.calls = LiveCalls("completed")
+    n = TwilioNotifier(PROFILE, lambda e: None, client=client, env=ENV, public_url="https://x")
+    n.psap_calls["inc-1"] = "CA-old"
+    n._update_911("inc-1", "the update")
+    assert [c["to"] for c in client.calls.made] == [ENV["PSAP_STANDIN_PHONE"]]
+    real = _real_message(client.calls.made[0])
+    assert "the update" in real and "<Gather" in real
+    assert n.psap_calls["inc-1"] != "CA-old"             # later updates go into the new call
+
+
+def test_family_text_only_gets_no_call():
+    client = FakeClient()
+    client.messages = FakeMessages()
+    n = TwilioNotifier(PROFILE, lambda e: None, client=client, env=ENV, family_via="text", text_via="whatsapp")
+    n._escalate(alerted_incident(), include_neighbors=True, family_only=False)
+    assert ENV["FAMILY_PHONE"] not in [c["to"] for c in client.calls.made]
+    assert client.messages.sent[0]["to"] == "whatsapp:" + ENV["FAMILY_PHONE"]

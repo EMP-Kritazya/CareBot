@@ -36,7 +36,7 @@ from carebot.vision.live import LiveVision, list_cameras
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--camera", help="picamera (Raspberry Pi camera), a webcam index, or a video file")
+    ap.add_argument("--camera", help="usb (the robot's Logitech webcam), a webcam index or /dev/videoN, or a video file")
     ap.add_argument("--webcam", type=int, help="same as --camera N")
     ap.add_argument("--video")
     ap.add_argument("--config", default="config/mock.yaml")
@@ -62,9 +62,11 @@ def main() -> None:
     apply_stillness_flags(cfg, demo=args.demo, override_s=args.stillness)
     cam_cfg = {**cfg.get("hw", {}).get("camera", {}), **cfg.get("camera", {})}
     camera = args.camera if args.camera is not None else (args.webcam if args.webcam is not None
-                                                          else cam_cfg.get("source", 0))
+                                                          else cam_cfg.get("source", "picamera" if cam_cfg.get("type") == "csi"
+                                                                   else cam_cfg.get("index", 0)))
     vision = LiveVision(cfg, window="CareBot vision (q to quit)", camera=camera, video=args.video,
                         size=args.size or cam_cfg.get("size"), rotate=int(cam_cfg.get("rotate", 0)),
+                        mirror=cam_cfg.get("mirror"),
                         imgsz=args.imgsz, device=args.device, save_face=args.save_face, headless=args.headless,
                         view=args.view, http_port=args.http_port or (8000 if args.headless else None))
     vision.banner_suffix = "  (vision only: no voice here)"

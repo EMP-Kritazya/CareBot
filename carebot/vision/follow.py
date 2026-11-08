@@ -30,7 +30,7 @@ def target_point(person: Person, min_conf: float = 0.3) -> tuple[float, float] |
 
 @dataclass
 class Follower:
-    fov_deg: tuple[float, float] = (66.0, 41.0)   # camera field of view (Pi Camera Module 3: 66 x 41)
+    fov_deg: tuple[float, float] = (66.0, 41.0)   # camera field of view (laptop default; the robot's Logitech: config/pi.yaml)
     deadband: float = 0.12        # no pan while he's within this far of the center (fraction of width)
     gain: float = 0.5             # move this share of the error per update
     max_step_deg: float = 4.0     # never move more than this per update (smooth, no lurching)

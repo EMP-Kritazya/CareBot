@@ -57,8 +57,13 @@ def got_up_family_text(profile: dict, incident: st.Incident) -> str:
             f"You may want to give {name} a call.")
 
 
-def update_text(profile: dict, status: str, quote: str, source: str, ts: float) -> str:
+def update_text(profile: dict, status: str, quote: str, source: str, ts: float,
+                helper: str | None = None, street: str | None = None) -> str:
     name = profile.get("resident_name", "Sandy")
+    if source == "neighbor" and status == "on_the_way":
+        where = f" on {street}" if street else ""
+        return (f"CareBot update {clock(ts)}: {helper or 'A neighbor'}, a neighbor{where} who agreed to help, "
+                f"replied YES and is on the way to {name}.")
     if source == "camera" and status == "got_up":
         return (f"CareBot update {clock(ts)}: the camera saw {name} get back up. "
                 f"No spoken 'I'm OK' from {name} yet. Help has not been called off.")
@@ -79,28 +84,50 @@ class ConsoleNotifier:
         self.sim_after = sim_neighbor_after_s
         self.delay = send_delay_s
         self.paused = False
+        self.report = lambda **kw: None  # live delivery status for the map (carebot/net/bridge.py)
+        self.text_channel = "whatsapp"   # how the family's texts would go (twilio.texts in the config)
+        self.neighbors = None  # Waves (carebot/escalate/receivers.py): neighbors in waves, on the map
 
     def _print(self, label: str, text: str) -> None:
         print(f"{YELLOW}  -> {label}:{RESET} {text}", flush=True)
 
+    def _play(self, target: str, kind: str, channel: str, steps: list[tuple[float, str]]) -> None:
+        """Console mode: report the delivery steps a real send would go through, marked simulated."""
+        for delay, status in steps:
+            t = threading.Timer(delay, lambda s=status: self.report(target=target, kind=kind, channel=channel,
+                                                                    status=s, simulated=True))
+            t.daemon = True
+            t.start()
+
+    def _play_text(self, kind: str) -> None:
+        self._play("family", kind, self.text_channel, [(0, "sending"), (0.6, "sent"), (1.6, "delivered"), (5, "read")])
+
     def escalate(self, incident: st.Incident, include_neighbors: bool, family_only: bool = False) -> None:
         if family_only:
+            self._play_text("alert")
             self._print(f"SMS to {self.profile.get('family_name', 'family')} only", got_up_family_text(self.profile, incident))
             threading.Timer(self.delay, lambda: self.post(st.EscalationSent(("family",), time.time()))).start()
             return
         texts = alert_texts(self.profile, incident.event, incident.who, incident.started_at)
         texts["911"] = briefing(fact_sheet(incident, self.profile, time.time()))  # the call's opening statement
         channels = []
-        if include_neighbors:
+        if include_neighbors and self.neighbors is not None:
+            if self.neighbors.start(incident):
+                wave = [r.name for r in self.neighbors.ranked if self.neighbors.statuses.get(r.id) == "contacted"]
+                self._print(f"to the nearest neighbors ({', '.join(wave)})", texts["neighbors"])
+                channels.append("neighbors")
+        elif include_neighbors:
             self._print("SMS to the 3 nearest neighbors", texts["neighbors"])
             channels.append("neighbors")
         self._print(f"SMS + call to {self.profile.get('family_name', 'family')}", texts["family"])
         self._print("call to 911 (stand-in phone)", texts["911"])
         channels += ["family", "911"]
+        self._play("911", "alert", "call", [(0, "dialing"), (1.2, "ringing"), (3.5, "connected")])
+        self._play_text("alert")
 
         def sent():
             self.post(st.EscalationSent(tuple(channels), time.time()))
-            if include_neighbors and self.sim_after is not None:
+            if include_neighbors and self.sim_after is not None and self.neighbors is None:
                 threading.Timer(self.sim_after, self._sim_yes).start()
 
         threading.Timer(self.delay, sent).start()  # sending takes a moment in real life too
@@ -114,10 +141,16 @@ class ConsoleNotifier:
 
     def pause(self) -> None:
         self.paused = True
+        if self.neighbors is not None:
+            self.neighbors.pause()
 
     def resume(self) -> None:
         self.paused = False
+        if self.neighbors is not None:
+            self.neighbors.resume()
 
     def update(self, u: st.SendUpdate) -> None:
-        text = update_text(self.profile, u.status, u.quote, u.source, time.time())
+        text = update_text(self.profile, u.status, u.quote, u.source, time.time(), u.helper, u.street)
         self._print(f"SMS to {self.profile.get('family_name', 'family')} + 911", text)
+        self._play_text("update")
+        self._play("911", "update", "call", [(0.4, "delivered")])

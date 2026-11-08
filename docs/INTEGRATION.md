@@ -42,17 +42,30 @@ face `.onnx` files and `vosk-model-small-en-us-0.15`. These are git-ignored, so 
 
 ```bash
 sudo apt update
-sudo apt install -y python3-picamera2 python3-venv espeak-ng libportaudio2 git
+sudo apt install -y python3-venv python3-gpiozero python3-lgpio espeak-ng libportaudio2 git v4l-utils \
+                    mosquitto mosquitto-clients
+# The robot is the map's MQTT broker. Mosquitto 2 only listens to the Pi itself by default; open it on our router:
+printf 'listener 1883\nallow_anonymous true\n' | sudo tee /etc/mosquitto/conf.d/carebot.conf
+sudo systemctl enable --now mosquitto && sudo systemctl restart mosquitto
 ```
-**Check:** `rpicam-still -o test.jpg` takes a photo (open it on the laptop with `scp`).
-**If it fails:** the camera ribbon is reseated or reversed. Power off, reseat it (contacts toward the
-connector's contacts), and boot again. On older images the command is `libcamera-still`.
+**Check (MQTT):** on the laptop, `mosquitto_sub -h carebot.local -t 'carebot/#' -v` connects (it prints
+the robot's heartbeat once the watcher runs). Only JSON goes over it; it's our own router, no internet.
+**Check (camera):** the Logitech is plugged into a **blue USB 3 port** (more power and bandwidth), then
+```bash
+v4l2-ctl --list-devices                      # the Logitech is listed under a usb-... line (e.g. /dev/video0)
+v4l2-ctl -d /dev/video0 --list-formats-ext   # shows MJPG with 1280x720 at 30 fps
+```
+On the Pi 5 the SoC's own video devices (`pispbe`, `rpivid`, ...) are listed too; that's why
+`config/pi.yaml` says `camera.source: usb` (it finds the webcam by name). Your user must be in the
+`video` group (`groups`; if not: `sudo usermod -aG video $USER`, log out and in).
+**If it fails:** replug it, try the other blue port, `dmesg | tail` should show "uvcvideo". If `dmesg`
+shows the webcam resetting under load, use a powered USB hub.
 
 ## 3. Code, packages, models
 
 ```bash
 git clone <repo-url> CareBot && cd CareBot
-python3 -m venv --system-site-packages .venv      # system site packages: picamera2 comes from apt
+python3 -m venv --system-site-packages .venv      # gpiozero + lgpio (button, buzzer) come from apt
 .venv/bin/pip install -r requirements.txt -r requirements-pi.txt
 ```
 *(laptop)* copy the models, the secrets and, optionally, a saved face:
@@ -62,8 +75,6 @@ scp -r data/faces <user>@carebot.local:~/CareBot/data/     # optional: re-enroll
 ```
 **Check:** `.venv/bin/python -m pytest -q` is green on the Pi (the hardware tests are skipped here).
 **If it fails:**
-- **numpy errors with picamera2** ("dtype size changed"): pip installed a numpy too new for the apt
-  picamera2. Run `.venv/bin/pip install "numpy<2"`.
 - **pip runs very slowly or fails on torch:** let it finish (torch is big on ARM), or try
   `.venv/bin/pip install --prefer-binary ultralytics`.
 
@@ -77,7 +88,12 @@ Open **http://carebot.local:8000** on the laptop. This is the *camera* view, for
 **Check:** you see the room live, and a skeleton appears when someone walks in.
 **Set in `config/pi.yaml` (`camera:`):**
 - `rotate`, if the picture is sideways or upside down (0 / 90 / 180 / 270);
-- `fov_deg` for the module: Camera Module 3 `[66, 41]`, Module 3 Wide `[102, 67]`, Module 2 `[62, 49]`.
+- `fov_deg` for the Logitech (head-follow uses it): C920 / C922 / Brio-class `[70, 43]` (the default),
+  C270 `[48, 28]`. Not sure? Stand 2 m away and measure how wide the visible area is (W m):
+  horizontal FOV = 2 * atan(W / 4) in degrees.
+- `mirror: false` stays: the robot's view is never mirrored (only a laptop preview is).
+- Autofocus hunting (picture pulses in and out)? Fix the focus: `v4l2-ctl -d /dev/video0 -c focus_automatic_continuous=0 -c focus_absolute=0`
+  (older drivers call it `focus_auto`).
 
 **Aim it:** standing in the middle of the area, a person should be fully in frame with margin, **and the
 floor in front of the bed or chair must be visible**. Falls end on the floor.
@@ -85,7 +101,7 @@ floor in front of the bed or chair must be visible**. Falls end on the floor.
 ## 5. Speed: pick the model size
 
 ```bash
-.venv/bin/python -m apps.bench_pose --camera picamera
+.venv/bin/python -m apps.bench_pose --camera usb
 ```
 **Check:** a table of ms per frame and fps for each model. Pick the **largest size at 8 fps or more** and set it
 in `config/pi.yaml`:
@@ -98,14 +114,41 @@ pose:
 (`vcgencmd get_throttled` should be `0x0`; it needs the 27 W supply and a heatsink or fan).
 If the NCNN models won't load, re-export on the Pi with `.venv/bin/python -m apps.bench_pose --export`.
 
-## 6. Hardware drivers *(Hardware, in parallel with 4–5)*
+## 6. Hardware drivers, one part at a time *(Hardware + Software together)*
 
-```bash
-.venv/bin/python -m apps.hwcheck --all
-.venv/bin/python -m pytest -m pi
+Wiring and power: `docs/wiring.md`. Do the parts in this order; each step has its own check.
+
+**6a. Pi settings (once).** At the end of `/boot/firmware/config.txt`, then `sudo reboot`:
 ```
-**Check:** every part says PASS. The servos sweep, the eyes cycle through every state, the buzzer chirps and
-then alarms, and button presses print.
+dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4
+dtparam=spi=on
+```
+**Check:** `ls /sys/class/pwm` shows a `pwmchip*` (its number goes in `pantilt.pwm_chip`), and
+`ls /dev/spidev0.0` exists.
+
+**6b. Button** (no power risk, so first): `.venv/bin/python -m apps.hwcheck button`, press it a few times.
+**Check:** one line per press, never two for one press. Nothing? Plain button: `pull_up: true`;
+Grove module: `pull_up: false`.
+
+**6c. Buzzer:** `.venv/bin/python -m apps.hwcheck buzzer`. **Check:** one short chirp, then the alarm for
+3 s, then silence. Only clicks? `buzzer.type: passive`.
+
+**6d. Eyes:** `.venv/bin/python -m apps.hwcheck eyes`. **Check:** each state in turn: blue breathing
+(watching), amber pulse (checking), red flash (alerted), green (help coming), purple (error).
+Wrong colors: `eyes.pixel_order`; flicker: use the level shifter; set `eyes.num_pixels` to the LED count.
+
+**6e. Pan-tilt (careful).** Before powering the servos: battery under 7.4 V, battery minus tied to Pi
+pin 34, nothing from the battery on the Pi's 5 V pins, and the head free to move. Connect the servo
+battery **last**. Then `.venv/bin/python -m apps.hwcheck pantilt` and follow its calibration help.
+**Check:** the sweep stays inside `limit_deg`; `a 30 0` turns the camera toward the **right of its image**
+(else `pan.invert: true`); `a 0 20` tilts it **up** (else `tilt.invert: true`); no servo buzzes against a
+stop. Commit the calibrated numbers in `config/hardware_pi.yaml`.
+
+**6f. Camera through the hardware check:** `.venv/bin/python -m apps.hwcheck camera`. **Check:** about
+30 fps at 1280x720 (MJPG); `/tmp/hwcheck.jpg` shows the room.
+
+**6g. All together:** `.venv/bin/python -m apps.hwcheck --all`, then `.venv/bin/python -m pytest -q`.
+**Check:** every part PASS; tests green.
 **If it fails:**
 - See `docs/HARDWARE.md` → "Pi 5 gotchas": the PWM chip number, `config.txt` overlays, and power.
 - A part that fails to start falls back to its mock and logs the error. The robot still runs; you just won't
@@ -119,7 +162,7 @@ bluetoothctl            # then: scan on / pair <MAC> / trust <MAC> / connect <MA
 wpctl status            # find the JBL sink id;  wpctl set-default <id>
 espeak-ng "CareBot speaker test"
 ```
-**Mic:** `arecord -l` should list the INMP441, or the webcam mic until it arrives.
+**Mic:** `arecord -l` should list the INMP441, or the Logitech's own mic (a "C920"-style card) until it arrives.
 ```bash
 .venv/bin/python -m apps.watcher --config config/pi.yaml --list-audio
 ```
@@ -175,9 +218,13 @@ down triggers it, raise them. Type `r` + Enter to record clips for the accuracy 
 ## 11. Full demo run
 
 ```bash
-.venv/bin/python -m apps.watcher --config config/pi.yaml --headless --demo --sim-neighbor 20
+.venv/bin/python -m apps.watcher --config config/pi.yaml --headless --demo      # the robot (SSH)
+python -m dashboard.server --mqtt carebot.local                                 # the laptop: the map
 ```
-Live view at **http://carebot.local:8000** (skeleton view). A teammate on the SSH terminal types
+Response console at **http://localhost:8050** on the laptop. **Live** mode follows the robot's camera;
+**Manual** mode: click Sandy's home, then *Send alert* (the robot's real pipeline: check-in, then
+911 + Suyog + nearest neighbors). It simulates the neighbors without a phone; real phones are rung. Live view at **http://carebot.local:8000** (skeleton view).
+If the map says "waiting", check the MQTT line in step 2. A teammate on the SSH terminal types
 `b` / `y` / `d Is he breathing?`. Run every story in PLAN.md:
 
 - [ ] **Story 2:** false alarm. Fall, then "I'm OK" → nothing sent.
@@ -186,7 +233,7 @@ Live view at **http://carebot.local:8000** (skeleton view). A teammate on the SS
 - [ ] **Story 4:** the visitor falls → no name used.
 - [ ] **Story 5:** fall, get up during the asks, walk away → family-only text.
 - [ ] Eyes, buzzer and button do the right thing at each step, and the head is frozen during incidents.
-- [ ] Gemini on (`AI: Gemini … ready` at startup), or knowingly off (`--no-ai`).
+- [ ] Claude on (`AI: Claude claude-opus-5-5 ready` at startup), or knowingly off (`--no-ai`).
 
 ## 12. Start on boot (optional) and tag
 
@@ -216,7 +263,8 @@ Finally *(laptop)*: commit, push and tag `v-demo`.
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| "Could not open camera" / picamera2 import error | Not apt-installed, or the venv lacks system packages | Step 2, and recreate the venv with `--system-site-packages` |
+| "Could not open camera" | Webcam not found, or no permission | Step 2: `v4l2-ctl --list-devices`, `video` group; or set `camera.source: /dev/videoN` |
+| Camera at 5-10 fps, laggy | Running uncompressed YUYV, or on a USB 2 port | It asks for MJPG; use a blue USB 3 port; `--list-formats-ext` must show MJPG 1280x720 |
 | Live view page doesn't load | Wrong address, or not started with `--headless` | `http://<pi-ip>:8000`; check the startup line "Live view: …" |
 | Under 8 fps | Model too big, or throttling | Step 5: smaller model; `vcgencmd get_throttled` |
 | CareBot doesn't hear answers | Wrong mic, or answering before the tick | `--list-audio`, set `voice.input_device`; speak after the tick |
@@ -224,4 +272,5 @@ Finally *(laptop)*: commit, push and tag `v-demo`.
 | Friend labeled Sandy | Weak enrollment | Step 8: re-save up close, then add samples at a distance |
 | Head pans the wrong way | Servo orientation | `pan.invert: true` |
 | Falls missed | Floor not in view, or thresholds | Re-aim (step 4), tune (step 10) |
-| `AI: Gemini not reachable` | Bad key, or no internet on the router | New key in `.env`; check the router's uplink |
+| Map stuck on "waiting · MQTT carebot.local" | Broker not reachable from the laptop | Step 2: `carebot.conf` listener, `sudo systemctl restart mosquitto`; same router |
+| `AI: Claude not reachable` | Bad or missing `ANTHROPIC_API_KEY`, or no internet on the router | Check the key in `.env`; check the router's uplink |

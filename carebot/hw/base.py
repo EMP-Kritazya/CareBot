@@ -32,7 +32,8 @@ class PanTilt(ABC):
     @abstractmethod
     def is_moving(self) -> bool:
         """True until `settle_ms` has passed since the last command that changed the position.
-        SG90s have no feedback, so this is time-based. Vision skips frames while it is True."""
+        Hobby servos (our Hitec D625MW) have no position feedback, so this is time-based.
+        Vision skips frames while it is True."""
 
     @abstractmethod
     def close(self) -> None:

@@ -1,0 +1,43 @@
+# Neighbors who agreed to help Sandy (receivers). Fictional names on real Morningside Heights blocks,
+# placed mid-block: never a real resident's exact address. Phone numbers never go here (this file is
+# committed): a real receiver names the .env variable that holds their number.
+#
+#   channel: call   a real phone (Twilio call, press 1 / 2). Without Twilio it is simulated like `sim`.
+#   channel: sim    simulated by the map server: `sim.reply` (yes | no | none) after `sim.after_s`.
+#
+# Ranked nearest first by walking time (data/routes.json, built by `python -m apps.build_routes`;
+# straight-line distance if a route is missing). Texted in waves of `wave_size`; if nobody says YES
+# within `wave_s`, the next wave goes out.
+
+home:
+  label: "Sandy's home (block level)"
+  street: "West 115th Street"
+  lat: 40.807745
+  lng: -73.966123
+
+waves:
+  wave_size: 3
+  wave_s: 90          # real: wait this long for a YES before the next wave
+  wave_s_demo: 25     # --demo
+
+receivers:
+  - {id: krit,   name: Krit,         street: "115th Street",        lat: 40.807353, lng: -73.965190,
+     channel: call, phone_env: NEIGHBOR_PHONE, note: "Has a key",   sim: {reply: yes,  after_s: 15}}
+  - {id: ana,    name: Ana Ruiz,     street: "114th Street",        lat: 40.806985, lng: -73.966269,
+     channel: sim,  note: "Retired nurse's aide",                    sim: {reply: no,   after_s: 8}}
+  - {id: dev,    name: Dev Mehta,    street: "116th Street",        lat: 40.808201, lng: -73.965251,
+     channel: sim,  note: "Grad student, evenings",                  sim: {reply: none}}
+  - {id: grace,  name: Grace Lin,    street: "113th Street",        lat: 40.806093, lng: -73.966104,
+     channel: sim,  note: "Works from home",                         sim: {reply: yes,  after_s: 20}}
+  - {id: lena,   name: Lena Brooks,  street: "Riverside Drive",     lat: 40.809281, lng: -73.967040,
+     channel: sim,  note: "Dog walker",                              sim: {reply: no,   after_s: 12}}
+  - {id: marcus, name: Marcus Hill,  street: "112th Street",        lat: 40.805028, lng: -73.965523,
+     channel: sim,  note: "Building super",                          sim: {reply: none}}
+  - {id: omar,   name: Omar Haddad,  street: "118th Street",        lat: 40.809505, lng: -73.964441,
+     channel: sim,  note: "Night shift",                             sim: {reply: none}}
+  - {id: sam,    name: Sam Ortiz,    street: "110th Street",        lat: 40.804116, lng: -73.967267,
+     channel: sim,  note: "",                                        sim: {reply: yes,  after_s: 30}}
+  - {id: rosa,   name: Rosa Chen,    street: "Amsterdam Avenue",    lat: 40.805025, lng: -73.961600,
+     channel: sim,  note: "",                                        sim: {reply: no,   after_s: 10}}
+  - {id: june,   name: June Park,    street: "120th Street",        lat: 40.810416, lng: -73.962697,
+     channel: sim,  note: "",                                        sim: {reply: none}}

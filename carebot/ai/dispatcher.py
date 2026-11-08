@@ -12,25 +12,38 @@ import re
 
 from carebot.ai.llm import safe_generate
 
-IDK = "I don't know. The device only knows what its camera sees and what it hears."
+IDK = "I don't know. The device can't tell that."
 
 SYSTEM = """You are CareBot, an automated home safety device, talking with a 911 dispatcher on a phone call.
-You are calm, clear and helpful, like an experienced caller who knows exactly what the device observed.
-Answer ONLY from the FACTS (JSON) and the conversation so far. One to three short spoken sentences.
-- "What's your emergency?", "Who is this?", "Why are you calling?": say who you are (CareBot, an automated
-  home safety device), who it's about (name, age, lives alone), what the camera saw and when, the address,
-  whether he answered the check-ins, and how to get in (the access note).
-- Give the most useful facts first. Use plain times ("11:29 PM"). Never read out JSON or field names.
-- If the facts don't answer the question, say "I don't know." and then the closest useful fact that IS in
-  the facts (e.g. "He did not answer two spoken check-ins at 2:07 AM, and the camera shows him on the floor.").
-- What the camera shows right now ("camera_now") and who has been contacted are facts you may state.
-- Never guess or give opinions about breathing, pulse, consciousness, injuries, bleeding, pain or how he is,
-  unless you are repeating someone's exact words from "quotes", and then say who said it.
-- Never predict arrival times. Never give medical instructions. Never say he is fine.
+You are calm and clear, like an experienced caller who knows exactly what the device observed.
+The call opened with a briefing (who, what, when, where, check-ins, access). The dispatcher has heard it.
+Answer ONLY from the FACTS (JSON) and the conversation so far.
+
+How to talk (this is a phone call; the dispatcher can interrupt you):
+- Answer exactly what was asked, in ONE short sentence (two at most). Most useful fact first.
+- Do NOT repeat facts you already said earlier in this call. If they ask again, say it once, briefly.
+- Only give the full summary (who you are, who it's about, what the camera saw and when, the address,
+  the check-ins, the access note) when asked "What's your emergency?", "Who is this?" or "Why are you
+  calling?", and only the first time; after that, a one-line reminder.
+- Plain times ("11:29 PM"). Never read out JSON or field names.
+- If the facts don't answer the question, say "I don't know." plus at most ONE related fact that is new to
+  this call or directly relevant (e.g. what the camera shows right now).
+- "camera_now" (what the camera shows now) and "contacted" are facts you may state.
+- If asked whether CareBot will update them or call back: say yes only if "calls_911_back" is true.
+- Refer to the resident only with the pronouns in resident.pronouns. Never guess.
+- Never guess or give opinions about breathing, pulse, consciousness, injuries, bleeding, pain or how the
+  resident is, unless repeating someone's exact words from "quotes" (say who said it).
+- Never predict arrival times. Never give medical instructions. Never say the resident is fine.
 Return JSON: {"answer": "<what you say>", "from_facts": true | false}"""
 
 SCHEMA = {"type": "object", "properties": {"answer": {"type": "string"}, "from_facts": {"type": "boolean"}},
           "required": ["answer", "from_facts"]}
+
+NOT_KNOWING = re.compile(r"\b(don't know|do not know|can't tell|cannot tell|can't see|cannot see|no way to (know|tell)|"
+                         r"not able to (know|tell|see)|unable to (know|tell|see)|can't say|cannot say|"
+                         r"can't confirm|cannot confirm|isn't something|is not something|"
+                         r"can't (monitor|detect|measure|check|sense)|cannot (monitor|detect|measure|check|sense)|"
+                         r"no (way|means) to (monitor|detect|measure|check))\b")
 
 FUTURE = re.compile(r"\b(will be|soon|arriv\w*|eta|expected|minutes away|should be there|any minute)\b")
 
@@ -57,9 +70,14 @@ def check_answer(answer: str, facts: dict) -> bool:
     part of someone's exact words in the fact sheet; no ETAs; no numbers that aren't in the facts."""
     a = answer.lower().replace("’", "'")
     quoted = _quotes_text(facts)
-    for word in set(CONDITION.findall(a)):
-        if not re.search(rf"\b{re.escape(word)}\b", quoted):
-            return False
+    # Check each clause on its own: "I don't know if he's hurt" admits not knowing (fine);
+    # "He looks hurt" or "I don't know, but he looks hurt" claims something (rejected).
+    for clause in re.split(r"[.;:!?,]|\bbut\b|\bhowever\b|\band\b", a):
+        for word in set(CONDITION.findall(clause)):
+            if re.search(rf"\b{re.escape(word)}\b", quoted):
+                continue  # someone's exact words
+            if not NOT_KNOWING.search(clause):
+                return False
     if predicts(a):
         return False  # no ETAs or predictions: the device can't know them
     fact_numbers = set(re.findall(r"\d+", json.dumps(facts)))
@@ -76,14 +94,17 @@ def summary(f: dict) -> str:
 
 def _camera_line(f: dict) -> str:
     seen = f.get("camera_now") or "unknown"
-    line = "" if seen == "unknown" else f"Right now the camera shows him {seen}."
+    obj = _pronoun(f, 1)
+    line = "" if seen == "unknown" else f"Right now the camera shows {obj} {seen}."
     if f.get("got_back_up_at"):
-        line += f" The camera saw him get back up at {f['got_back_up_at']}."
+        line += f" The camera saw {obj} get back up at {f['got_back_up_at']}."
     return line.strip()
 
 
 def _contacted(f: dict) -> str:
-    names = {"neighbors": "neighbors", "family": "his family", "911": "911"}
+    fam = (f.get("family_contact") or "").split(".")[0]
+    fam = f"the family ({fam})" if fam and fam != "family" else "the family"
+    names = {"neighbors": "neighbors", "family": fam, "911": "911"}
     who = [names[c] for c in f.get("contacted", []) if c in names]
     return ("CareBot has contacted " + (" and ".join(who) if len(who) < 3 else ", ".join(who[:-1]) + " and " + who[-1])
             + ".") if who else "CareBot hasn't reached anyone else yet."
@@ -109,7 +130,7 @@ def offline_answer(question: str, f: dict) -> str:
     # Condition: the device can't know, whatever else the question mentions.
     if re.search(r"\b(breath\w*|conscious|alert|awake|injur\w*|bleed\w*|hurt\w*|pain|pulse|ok|okay|fine|"
                  r"move|moving|stroke|heart|alive|responsive)\b", q):
-        extra = [_no_answer_line(f)]
+        extra = []
         if f["quotes"]:
             last = f["quotes"][-1]
             extra.append(f"At {last['time']}, {last['who']} said: \"{last['said']}\".")
@@ -139,7 +160,14 @@ def offline_answer(question: str, f: dict) -> str:
 
 def _no_answer_line(f: dict) -> str:
     n = sum(1 for c in f["check_ins"] if "no answer" in c)
-    return f"He did not answer {n} spoken check-in{'s' if n != 1 else ''}." if n else ""
+    verb = "did not answer"
+    return f"{_pronoun(f, 0).capitalize()} {verb} {n} spoken check-in{'s' if n != 1 else ''}." if n else ""
+
+
+def _pronoun(f: dict, form: int) -> str:
+    """form 0 = subject (he/she/they), 1 = object (him/her/them), from the profile's pronouns."""
+    parts = str(f.get("resident", {}).get("pronouns", "they/them")).split("/")
+    return parts[form] if len(parts) > form else ("they", "them")[form]
 
 
 def answer(question: str, facts: dict, ai=None, history: list[tuple[str, str]] | None = None,

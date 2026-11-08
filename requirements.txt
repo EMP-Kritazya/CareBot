@@ -5,3 +5,21 @@ pytest>=8.0
 # Vision: YOLO11n-pose + ByteTrack (pulls in torch, opencv-python, numpy)
 ultralytics>=8.3
 lap>=0.5
+
+# Voice in: Vosk offline speech recognition (model: models/vosk-model-small-en-us-0.15, ~40 MB)
+vosk>=0.3.45
+sounddevice>=0.4
+
+# Claude in the middle (optional: without a key CareBot uses templates + keywords)
+anthropic>=2.6
+
+# Fast pose on the Pi: NCNN runtime for models/yolo11n-pose_*_ncnn_model (export also needs `pnnx`)
+ncnn>=1.0
+
+# Real phone calls (voice-first alerts). Upgraded account needed; see docs/TWILIO.md
+twilio>=9.0
+
+# The neighborhood map (laptop) and the robot <-> map link (MQTT; the Pi runs Mosquitto)
+fastapi>=0.115
+uvicorn>=0.30
+paho-mqtt>=2.1

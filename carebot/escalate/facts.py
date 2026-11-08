@@ -19,16 +19,26 @@ EVENT_TEXT = {"fall": "the camera saw a fall", "stillness": "the camera saw no m
               "manual": "an alert was triggered manually from the dashboard"}
 
 
-def fact_sheet(inc: st.Incident, profile: dict, now: float, camera_now: str | None = None) -> dict:
-    """camera_now: what the camera sees right now, e.g. "lying on the floor", "out of view"."""
+def fact_sheet(inc: st.Incident, profile: dict, now: float, camera_now: str | None = None,
+               calls_911_back: bool = False) -> dict:
+    """camera_now: what the camera sees right now, e.g. "lying on the floor", "out of view".
+    calls_911_back: whether CareBot will call 911 again with each update (so it can promise that)."""
     name = profile.get("resident_name", "the resident")
-    check_ins, buttons, quotes, neighbors = [], [], [], []
+    # Only real "are you OK?" check-ins count as check-ins. Comfort talk ("I'm here with you") and
+    # "who are you?" go to `other_prompts`, so nobody is told "3 check-ins" when there were 2.
+    check_ins, other, buttons, quotes, neighbors = [], [], [], [], []
+    last_ask = "check_in"
     for e in inc.timeline:
         if e.kind == "ask":
-            check_ins.append(f"{clock(e.ts)}: CareBot asked ({e.detail})")
+            last_ask = e.detail.split(" ")[0]
+            target = check_ins if last_ask in ("check_in", "confirm") else other
+            what = {"comfort": "CareBot spoke to comfort and listened", "onscene": "CareBot asked who is there"}.get(
+                last_ask, f"CareBot asked ({e.detail})")
+            target.append(f"{clock(e.ts)}: {what}")
         elif e.kind == "response":
             heard = "no answer" if "silence" in e.detail else f"answer heard: {e.detail}"
-            check_ins.append(f"{clock(e.ts)}: {heard}")
+            (check_ins if last_ask in ("check_in", "confirm") and "comfort" not in e.detail else other).append(
+                f"{clock(e.ts)}: {heard}")
         elif e.kind == "button":
             buttons.append(f"{clock(e.ts)}: button {e.detail}")
         elif e.kind == "receiver":
@@ -40,16 +50,20 @@ def fact_sheet(inc: st.Incident, profile: dict, now: float, camera_now: str | No
     return {
         "address": profile.get("address"),
         "access": profile.get("access_note"),
-        "resident": {"name": name, "age": profile.get("resident_age"), "lives_alone": profile.get("lives_alone")},
+        "resident": {"name": name, "age": profile.get("resident_age"), "lives_alone": profile.get("lives_alone"),
+                     "pronouns": profile.get("resident_pronouns", "they/them")},
         "who_is_involved": person,
         "what_happened": EVENT_TEXT.get(inc.event, inc.event),
         "when": clock(inc.started_at),
         "minutes_since": int((now - inc.started_at) // 60),
         "check_ins": check_ins,
+        "other_prompts": other,
         "button_presses": buttons,
         "got_back_up_at": clock(inc.got_up_at) if inc.got_up_at else None,
         "camera_now": camera_now or "unknown",
+        "calls_911_back": calls_911_back,
         "contacted": list(inc.channels),
+        "family_contact": _family_contact(profile),
         "neighbor_status": inc.neighbor,
         "helper": inc.helper,
         "neighbor_replies": neighbors,
@@ -57,6 +71,13 @@ def fact_sheet(inc: st.Incident, profile: dict, now: float, camera_now: str | No
         "device_limits": "The device only knows what its camera sees and what its microphone hears. "
                          "It cannot measure breathing, pulse, consciousness or injuries.",
     }
+
+
+def _family_contact(profile: dict) -> str:
+    name, relation = profile.get("family_name"), profile.get("family_relation")
+    who = f"{name}, {profile.get('resident_name', 'the resident')}'s {relation}" if name and relation else (name or "family")
+    return (f"{who}. CareBot texts and calls them about the incident; replies from the family "
+            "don't come back to CareBot, so it doesn't know if they have seen it.") if name else who
 
 
 def briefing(f: dict) -> str:

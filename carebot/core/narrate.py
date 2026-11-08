@@ -10,7 +10,7 @@ DIM, BOLD, RED, GREEN, YELLOW, CYAN, RESET = "\033[2m", "\033[1m", "\033[31m", "
 def describe(a) -> str | None:
     if isinstance(a, st.Ask):
         how = "asks loudly" if a.loud else "asks"
-        listen = "listens for a full answer" if a.listen == "transcript" else "listens 15 s"
+        listen = "listens for a full answer" if a.listen == "transcript" else "listens for 'I'm OK' or 'help'"
         return f'{CYAN}CareBot {how}:{RESET} "{a.text}"  {DIM}({listen}){RESET}'
     if isinstance(a, st.Say):
         return f'{CYAN}CareBot says:{RESET} "{a.text}"'
@@ -32,6 +32,8 @@ def describe(a) -> str | None:
         return f"{DIM}escalation {'paused' if isinstance(a, st.PauseEscalation) else 'resumed'}{RESET}"
     if isinstance(a, st.SendUpdate) and a.source == "camera":
         return f"{YELLOW}UPDATE ->{RESET} [{a.status}] the camera saw him get back up (no 'I'm OK' yet)"
+    if isinstance(a, st.SendUpdate) and a.source == "neighbor":
+        return f"{YELLOW}UPDATE -> family + 911:{RESET} [{a.status}] {a.helper} replied YES and is on the way"
     if isinstance(a, st.SendUpdate) and a.source == "resident":
         return f'{YELLOW}UPDATE ->{RESET} [{a.status}] he said: "{a.quote}"'
     if isinstance(a, st.SendUpdate):

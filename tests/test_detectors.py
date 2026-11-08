@@ -1,5 +1,6 @@
 """Fall and stillness detectors, including the field-of-view rule. Synthetic skeletons at 10 fps."""
 
+import copy
 import random
 
 import pytest
@@ -10,10 +11,20 @@ from carebot.vision.keypoints import features
 from carebot.vision.synth import frame, lerp, person
 
 CFG = load_config("config/mock.yaml")["detectors"]
+CFG["stillness"]["profile"] = "demo"
+# These tests pin their own short timers, so retuning the demo values in YAML doesn't break them.
+CFG["stillness"]["timers"]["demo"] = {"sitting": 30, "upright": 20, "slumped": 10}
+CFG["stillness"]["cooldown_s"]["demo"] = 60
+REAL = copy.deepcopy(CFG)
+REAL["stillness"]["profile"] = "real"
 
 
 def Detectors():
-    return _det.Detectors(CFG)
+    return _det.Detectors(copy.deepcopy(CFG))
+
+
+def RealDetectors():
+    return _det.Detectors(copy.deepcopy(REAL))
 
 
 HOLD = CFG["fall"]["hold_s"]
@@ -119,8 +130,17 @@ def test_fall_out_of_frame_alerts_after_out_of_view_timeout():
 def test_fall_out_of_frame_then_reappears_upright_with_new_track_id():
     det = Detectors()
     frames = [*standing(1, 0, 1), *falling(1, 1, 0.4, end_deg=35), *empty(1.5, 5)]
-    frames += list(standing(7, 5, 8, hip=(0.55, 0.5)))  # tracker gave her a new id
+    frames += list(standing(7, 5, 8, hip=(0.55, 0.5)))  # tracker gave him a new id
     assert kinds(run(det, frames)) == ["fall_candidate", "fall_recovered"]
+
+
+def test_lost_mid_fall_then_redetected_low_on_the_floor_is_not_getting_up():
+    """URFD fall-01: the tracker loses him lying at the bottom edge, then finds him again (new id)
+    with a torso that reads only 23 degrees but hips even lower than where he fell. Still down."""
+    det = Detectors()
+    frames = [*standing(1, 0, 1), *falling(1, 1, 0.4, end_y=0.8, end_deg=70), *empty(1.4, 1.8)]
+    frames += [frame(1.8 + i * DT, person(3, (0.5, 0.88), torso_deg=23)) for i in range(int(12 / DT))]
+    assert kinds(run(det, frames)) == ["fall_candidate", "fall"]
 
 
 def test_walking_out_of_frame_is_not_an_event():
@@ -312,3 +332,117 @@ def test_same_fall_far_from_camera_still_triggers():
                                         torso_deg=lerp(5, 80, i / 4), **small)) for i in range(1, 5)]
     frames += [frame(1.4 + i * DT, person(1, (0.5, 0.6), "lying", **small)) for i in range(1, int(DOWN * FPS))]
     assert kinds(run(det, frames)) == ["fall_candidate", "fall"]
+
+
+
+# ---------------------------------------------------------------- getting up after a confirmed fall
+
+def test_getting_up_after_a_confirmed_fall_reports_got_up():
+    det = Detectors()
+    frames = [*standing(1, 0, 1, resident=1), *falling(1, 1, 0.4, resident=1), *lying(1, 1.5, DOWN, resident=1),
+              *standing(1, DOWN, DOWN + 3, resident=1)]
+    assert kinds(run(det, frames)) == ["fall_candidate", "fall", "got_up"]
+
+
+def test_out_of_view_fall_then_reappears_upright_reports_got_up():
+    det = Detectors()
+    oov = CFG["fall"]["out_of_view_s"]
+    frames = [*standing(1, 0, 1), *falling(1, 1, 0.4, end_deg=35), *empty(1.5, 1.5 + oov + 1)]
+    frames += list(standing(9, 1.5 + oov + 1, 1.5 + oov + 4, hip=(0.55, 0.5)))  # back, with a new track id
+    ev = run(det, frames)
+    assert kinds(ev) == ["fall_candidate", "fall", "got_up"]
+    assert ev[-1].track_id == 1  # reported for the person who fell
+
+
+
+# ---------------------------------------------------------------- adaptive stillness
+
+def still_frames(t0, t1, posture="sitting", fps=1, hide_hips=False, hip=(0.5, 0.6), **kw):
+    """A resident (track 1) holding still from t0 to t1."""
+    rng = random.Random(7)
+    t = t0
+    while t < t1 - 1e-9:
+        p = person(1, hip, posture, jitter=0.002, rng=rng, **kw)
+        yield frame(t, hide_legs(p) if hide_hips else p, resident=1)
+        t += 1 / fps
+
+
+def slumped_person(hip=(0.5, 0.6)):
+    """Seated, leaning over to one side in the chair (torso 40 degrees)."""
+    return person(1, hip, "sitting", torso_deg=40)
+
+
+def head_hanging_hips_hidden():
+    """Chest-up view, head dropped forward below the shoulder line."""
+    p = hide_legs(person(1, (0.5, 0.9), "sitting", torso_len=0.45))
+    kps = list(p.keypoints)
+    sy = (kps[5][1] + kps[6][1]) / 2
+    sx = (kps[5][0] + kps[6][0]) / 2
+    for i in range(5):  # head drops to just below the shoulders, centered between them
+        kps[i] = (sx + (kps[i][0] - kps[0][0]), sy + 0.02, kps[i][2])
+    return type(p)(1, tuple(kps))
+
+
+def lying_in_bed_hips_hidden():
+    """In bed under a blanket: shoulders stacked (on one side), head off to the side."""
+    p = hide_legs(person(1, (0.5, 0.7), "lying"))
+    return p
+
+
+def test_real_timer_sitting_calmly_waits_20_minutes():
+    det = RealDetectors()
+    assert run(det, still_frames(0, 5 * 60)) == []           # 5 min watching TV: nothing
+    ev = run(det, still_frames(5 * 60, 21 * 60))
+    assert kinds(ev) == ["stillness"] and 20 * 60 <= ev[0].ts <= 20 * 60 + 3
+
+
+def test_real_timer_standing_still_is_3_minutes():
+    det = RealDetectors()
+    ev = run(det, still_frames(0, 4 * 60, posture="upright", hip=(0.5, 0.5)))
+    assert kinds(ev) == ["stillness"] and 180 <= ev[0].ts <= 183
+
+
+def test_real_timer_slumped_is_1_minute():
+    det = RealDetectors()
+    rng = random.Random(3)
+    frames = []
+    for i in range(90):
+        p = slumped_person()
+        kps = tuple((x + rng.uniform(-0.002, 0.002), y + rng.uniform(-0.002, 0.002), c) for x, y, c in p.keypoints)
+        frames.append(frame(float(i), type(p)(1, kps), resident=1))
+    ev = run(det, frames)
+    assert kinds(ev) == ["stillness"] and 60 <= ev[0].ts <= 62
+
+
+def test_slump_detection():
+    from carebot.vision.keypoints import body_view
+    slump = CFG["stillness"]["slump"]
+    aspect = 4 / 3
+    assert body_view(slumped_person(), aspect, slump=slump)[0] == "slumped"
+    assert body_view(head_hanging_hips_hidden(), aspect, 0.3, slump=slump)[0] == "slumped"
+    assert body_view(person(1, (0.5, 0.6), "sitting"), aspect, slump=slump)[0] == "sitting"
+    assert body_view(person(1, (0.5, 0.5), "upright"), aspect, slump=slump)[0] == "upright"
+    # Lying in bed with the hips hidden is never "slumped" (that would wake him every night).
+    assert body_view(lying_in_bed_hips_hidden(), aspect, 0.3, slump=slump)[0] == "lying"
+
+
+def test_cooldown_blocks_stillness_then_timer_runs_normally():
+    det = Detectors()  # demo: sitting 30 s, cooldown 60 s
+    det.stillness.restart(0.0, cooldown=True)
+    assert run(det, still_frames(0, 59)) == []
+    assert "cooldown" in det.stillness.reason or det.stillness.reason.startswith("still")
+    ev = run(det, still_frames(59, 100))
+    assert kinds(ev) == ["stillness"] and 60 + 30 <= ev[0].ts <= 60 + 33
+
+
+def test_backoff_doubles_caps_and_resets_after_standing_up():
+    det = Detectors()
+    st = det.stillness
+    st.restart(0, backoff=True)
+    assert st.threshold("sitting") == 60
+    st.restart(0, backoff=True)
+    st.restart(0, backoff=True)
+    assert st.threshold("sitting") == 120  # capped at 4x
+    run(det, still_frames(0, 3))
+    run(det, still_frames(3, 6, posture="upright", hip=(0.5, 0.5)))  # stands up
+    assert st.threshold("sitting") == 30

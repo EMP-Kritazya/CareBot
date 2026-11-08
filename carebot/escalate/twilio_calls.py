@@ -69,15 +69,41 @@ def psap_twiml(opening: str, action: str | None) -> str:
     return ask_twiml(opening, action)
 
 
+HOLD_LISTEN_S = 10          # each quiet listen while holding the line
+HOLD_REMIND_EVERY = 3       # "still on the line" after this many quiet listens (about 30 s)
+HOLD_MAX = 120              # about 20 minutes of total silence, then CareBot hangs up
+
+
+def _with(url: str, **params) -> str:
+    return url + ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
+
+
 def ask_twiml(text: str, action: str) -> str:
-    """Say something, then listen for the dispatcher's next question."""
+    """Say something, then listen for the dispatcher's next question. CareBot never hangs up on
+    911 by itself: if nobody speaks, it keeps holding the line (see hold_twiml)."""
     from twilio.twiml.voice_response import Gather
 
     vr = _vr()
     g = Gather(input="speech", action=action, method="POST", speech_timeout="auto", timeout=8)
     g.say(text, voice=VOICE)
     vr.append(g)
-    vr.say("This is CareBot. I'll call again if anything changes. Goodbye.", voice=VOICE)
+    vr.redirect(_with(action, quiet=1), method="POST")
+    return str(vr)
+
+
+def hold_twiml(action: str, quiet: int) -> str:
+    """The dispatcher is quiet: keep listening, now and then say CareBot is still there."""
+    from twilio.twiml.voice_response import Gather
+
+    vr = _vr()
+    if quiet >= HOLD_MAX:
+        vr.say("CareBot is hanging up now. It will call back with any update.", voice=VOICE)
+        return str(vr)
+    g = Gather(input="speech", action=action, method="POST", speech_timeout="auto", timeout=HOLD_LISTEN_S)
+    if quiet % HOLD_REMIND_EVERY == 0:
+        g.say("CareBot is still on the line. Ask me anything.", voice=VOICE)
+    vr.append(g)
+    vr.redirect(_with(action, quiet=quiet + 1), method="POST")
     return str(vr)
 
 
@@ -96,6 +122,16 @@ def neighbor_reply_twiml(digits: str, address: str | None, access: str | None,
     vr.say("Sorry, I didn't understand. Goodbye.", voice=VOICE)
     return str(vr), None
 
+
+WHATSAPP_SANDBOX = "+14155238886"  # Twilio's shared WhatsApp sandbox number (docs/TWILIO.md)
+
+# Why a text didn't arrive, in plain words (Twilio error codes).
+TEXT_ERRORS = {
+    "30034": "not registered for US texting (A2P 10DLC)",
+    "63015": "this phone hasn't joined the WhatsApp sandbox (send the join code, docs/TWILIO.md)",
+    "63016": "outside WhatsApp's 24-hour window: that phone must message the sandbox first",
+    "63007": "TWILIO_WHATSAPP_FROM isn't a WhatsApp sender on this account",
+}
 
 # Calls waiting for a person: token -> {"twiml": the real message, "intro": the opening line}.
 PENDING: dict[str, dict] = {}
@@ -154,6 +190,13 @@ def gate_answer(token: str, speech: str, digits: str, start_action: str) -> str:
     return entry["twiml"]
 
 
+CALL_PROGRESS = {"queued": "dialing", "initiated": "dialing", "ringing": "ringing", "in-progress": "connected",
+                 "completed": "ended", "busy": "no_answer", "no-answer": "no_answer", "failed": "failed",
+                 "canceled": "failed"}
+TEXT_PROGRESS = {"queued": "sending", "accepted": "sending", "sent": "sent", "delivered": "delivered", "read": "read",
+                 "undelivered": "failed", "failed": "failed"}
+
+
 def call_outcome(call_status: str) -> str | None:
     """Twilio's final CallStatus -> "answered" / "unanswered" (None while still in progress)."""
     if call_status == "completed":
@@ -176,7 +219,8 @@ class TwilioNotifier:
 
     def __init__(self, profile: dict, post: Callable[[object], None], client=None, env: dict | None = None,
                  public_url: str | None = None, dry_run: bool = False, facts_now=None,
-                 family_via: str = "call", psap_updates: bool = True, include_neighbor_calls: bool = True) -> None:
+                 family_via: str = "call", psap_updates: bool = True, include_neighbor_calls: bool = True,
+                 text_via: str = "sms") -> None:
         env = env if env is not None else os.environ
         self.profile, self.post = profile, post
         self.from_number = env.get("TWILIO_FROM_NUMBER", "")
@@ -184,14 +228,21 @@ class TwilioNotifier:
         self.psap = env.get("PSAP_STANDIN_PHONE", "")
         names = [n.strip() for n in profile.get("neighbor_name", "Krit").split(",")]
         phones = [p.strip() for p in env.get("NEIGHBOR_PHONE", "").split(",") if p.strip()]
-        self.neighbors = [(n, p) for n, p in zip(names + [f"Neighbor {i + 2}" for i in range(len(phones))], phones)]
+        self.neighbor_phones = [(n, p) for n, p in zip(names + [f"Neighbor {i + 2}" for i in range(len(phones))], phones)]
         self.public = (public_url or env.get("PUBLIC_BASE_URL", "") or "").rstrip("/") or None
         self.dry_run = dry_run
-        self.family_via = family_via            # "call" | "sms" | "both"
+        self.family_via = family_via            # "text" | "call" | "both"  (a text goes by text_via; "sms" = "text")
+        self.text_via = text_via                # "sms" | "whatsapp": how texts go out
+        # The WhatsApp sender: Twilio's shared sandbox number unless you have your own WhatsApp sender.
+        self.whatsapp_from = env.get("TWILIO_WHATSAPP_FROM", "") or WHATSAPP_SANDBOX
         self.psap_updates = psap_updates        # call 911 again for each update
         self.include_neighbor_calls = include_neighbor_calls
         self.sent: list[dict] = []              # every call/SMS placed: {kind, label, sid}, for test reports
         self.paused = False
+        self.neighbors = None                   # Waves: neighbors in waves (else every NEIGHBOR_PHONE at once)
+        self.psap_calls: dict[str, str] = {}   # incident id -> the 911 call's sid (updates go into it)
+        self.last_sid: str | None = None
+        self.report = lambda **kw: None         # live delivery status for the map (carebot/net/bridge.py)
         self.facts_now = facts_now  # () -> fact sheet for the current incident (911 Q&A)
         self.client = client
         if self.client is None and not dry_run:
@@ -208,7 +259,8 @@ class TwilioNotifier:
 
     # ---- placing calls
 
-    def _call(self, to: str, twiml: str, label: str, target: str, incident_id: str, voicemail: str = "") -> bool:
+    def _call(self, to: str, twiml: str, label: str, target: str, incident_id: str, voicemail: str = "",
+              kind: str = "alert") -> bool:
         """True if Twilio accepted the call. With a tunnel, the call first waits for a real person
         (not a call screener or voicemail) before delivering `twiml`; `voicemail` is left otherwise."""
         if not to:
@@ -225,48 +277,63 @@ class TwilioNotifier:
             print(f"{YELLOW}  -> CALL {label} (dry run){RESET}\n{DIM}{twiml}{RESET}", flush=True)
             return True
         kwargs = dict(to=to, from_=self.from_number, twiml=twiml)
-        status = self._url("/twilio/status", inc=incident_id, target=target)
-        if status:
+        status = self._url("/twilio/status", inc=incident_id, target=target, kind=kind)
+        if status:  # every step, so the map shows dialing -> ringing -> connected -> ended
             kwargs.update(status_callback=status, status_callback_method="POST",
-                          status_callback_event=["completed"])
+                          status_callback_event=["initiated", "ringing", "answered", "completed"])
+        shown = target if target in ("911", "family") else None
         try:
             call = self.client.calls.create(**kwargs)
+            self.last_sid = call.sid
             self.sent.append({"kind": "call", "label": label, "sid": call.sid})
             print(f"{YELLOW}  -> calling {label}{RESET} {DIM}({call.sid[-6:]}){RESET}", flush=True)
+            if shown:
+                self.report(target=shown, kind=kind, channel="call", status="dialing")
             return True
         except Exception as e:  # noqa: BLE001 - one failed call must not stop the others
             print(f"{YELLOW}  -> call to {label} FAILED: {e}{RESET}", flush=True)
+            if shown:
+                self.report(target=shown, kind=kind, channel="call", status="failed")
             return False
 
     def _sms(self, to: str, body: str, label: str) -> bool:
-        """True if Twilio accepted the text (delivery is reported later: see the sms-status webhook).
-        Note: texts from a US long code need A2P 10DLC registration, or carriers block them (30034)."""
+        """A text, by SMS or WhatsApp (text_via). True if Twilio accepted it (delivery is reported
+        later: see the sms-status webhook). SMS from a US long code needs A2P 10DLC registration, or
+        carriers block it (30034). WhatsApp (sandbox) needs the recipient to have joined it."""
+        channel = "WhatsApp" if self.text_via == "whatsapp" else "SMS"
         if not to:
-            print(f"{YELLOW}  -> SMS {label}: no phone number set in .env, skipped{RESET}", flush=True)
+            print(f"{YELLOW}  -> {channel} {label}: no phone number set in .env, skipped{RESET}", flush=True)
             return False
         if self.dry_run:
-            print(f"{YELLOW}  -> SMS {label} (dry run):{RESET} {body}", flush=True)
+            print(f"{YELLOW}  -> {channel} {label} (dry run):{RESET} {body}", flush=True)
             return True
-        kwargs = dict(to=to, from_=self.from_number, body=body)
-        status = self._url("/twilio/sms-status", label=label)
+        if self.text_via == "whatsapp":
+            kwargs = dict(to=f"whatsapp:{to}", from_=f"whatsapp:{self.whatsapp_from}", body=body)
+        else:
+            kwargs = dict(to=to, from_=self.from_number, body=body)
+        kind = "update" if "update" in label else "alert"
+        status = self._url("/twilio/sms-status", label=label, target="family", kind=kind, channel=channel.lower())
         if status:
             kwargs["status_callback"] = status
         try:
             msg = self.client.messages.create(**kwargs)
-            self.sent.append({"kind": "sms", "label": label, "sid": msg.sid})
-            print(f"{YELLOW}  -> SMS to {label}:{RESET} {body}", flush=True)
+            self.sent.append({"kind": "sms", "label": label, "sid": msg.sid, "channel": channel})
+            print(f"{YELLOW}  -> {channel} to {label}:{RESET} {body}", flush=True)
+            self.report(target="family", kind=kind, channel=channel.lower(), status="sending")
             return True
         except Exception as e:  # noqa: BLE001
-            print(f"{YELLOW}  -> SMS to {label} FAILED: {e}{RESET}", flush=True)
+            print(f"{YELLOW}  -> {channel} to {label} FAILED: {e}{RESET}", flush=True)
+            self.report(target="family", kind=kind, channel=channel.lower(), status="failed")
             return False
 
     def _family(self, text: str, label: str, incident_id: str) -> bool:
         """Tell the family by text and/or call, as configured. True if any of it went out."""
         ok = False
-        if self.family_via in ("sms", "both"):
+        if self.family_via in ("text", "sms", "both"):
             ok |= self._sms(self.family, text, label)
         if self.family_via in ("call", "both"):
-            ok |= self._call(self.family, say_twiml(text), label, "family", incident_id, voicemail=text)
+            ok |= self._call(self.family, say_twiml(text), label, "family", incident_id, voicemail=text,
+                             kind="update" if "update" in label else "alert")
         return ok
 
     def escalate(self, incident: st.Incident, include_neighbors: bool, family_only: bool = False) -> None:
@@ -279,19 +346,22 @@ class TwilioNotifier:
             return
         texts = alert_texts(self.profile, incident.event, incident.who, incident.started_at)
         channels = []
-        if include_neighbors and self.include_neighbor_calls:
+        if include_neighbors and self.neighbors is not None:
+            if self.neighbors.start(incident):   # waves: real phones are called through call_receiver
+                channels.append("neighbors")
+        elif include_neighbors and self.include_neighbor_calls:
             reached = False
-            for name, phone in self.neighbors:
-                text = neighbor_call_text(self.profile, incident)
-                action = self._url("/twilio/neighbor", inc=incident.id, rid=name.lower(), name=name)
-                reached |= self._call(phone, neighbor_twiml(text, action), f"{name} (neighbor)",
-                                      f"neighbor:{name.lower()}", incident.id, voicemail=text)
+            for name, phone in self.neighbor_phones:
+                reached |= self.call_neighbor(name, phone, incident)
             if reached:
                 channels.append("neighbors")
         opening = briefing(fact_sheet(incident, self.profile, time.time()))
+        self.last_sid = None
         if self._call(self.psap, psap_twiml(opening, self._url("/twilio/psap", inc=incident.id)),
                       "911 stand-in", "911", incident.id, voicemail=opening):
             channels.append("911")
+            if self.last_sid:
+                self.psap_calls[incident.id] = self.last_sid
         # The family is called last, so their message can say truthfully who was already reached.
         family = alert_texts(self.profile, incident.event, incident.who, incident.started_at,
                              contacted=tuple(channels))["family"]
@@ -299,21 +369,56 @@ class TwilioNotifier:
             channels.append("family")
         self.post(st.EscalationSent(tuple(channels), time.time()))  # CareBot only says what was sent
 
+    def call_neighbor(self, name: str, phone: str, incident: st.Incident, rid: str | None = None) -> bool:
+        text = neighbor_call_text(self.profile, incident)
+        rid = rid or name.lower()
+        action = self._url("/twilio/neighbor", inc=incident.id, rid=rid, name=name)
+        return self._call(phone, neighbor_twiml(text, action), f"{name} (neighbor)", f"neighbor:{rid}",
+                          incident.id, voicemail=text)
+
+    def call_receiver(self, r, incident: st.Incident) -> bool:
+        """For Waves: a receiver with a real phone (its number is in .env under r.phone_env)."""
+        phone = os.environ.get(r.phone_env or "", "").split(",")[0].strip()
+        return self.call_neighbor(r.name, phone, incident, rid=r.id) if phone else False
+
     def update(self, u: st.SendUpdate) -> None:
-        text = update_text(self.profile, u.status, u.quote, u.source, time.time())
+        text = update_text(self.profile, u.status, u.quote, u.source, time.time(), u.helper, u.street)
 
         def run():
             self._family(text, "Suyog (update)", u.incident_id)
             if self.psap_updates:
-                self._call(self.psap, say_twiml(text), "911 stand-in (update)", "911", u.incident_id, voicemail=text)
+                self._update_911(u.incident_id, text)
 
         threading.Thread(target=run, daemon=True).start()
 
+    def _update_911(self, incident_id: str, text: str) -> None:
+        """Into the 911 call if it's still open (the dispatcher hears it at once and can ask more);
+        otherwise call 911 again, and that call also stays open for questions."""
+        action = self._url("/twilio/psap", inc=incident_id)
+        sid = self.psap_calls.get(incident_id)
+        if sid and action and not self.dry_run:
+            try:
+                if self.client.calls(sid).fetch().status == "in-progress":
+                    self.client.calls(sid).update(twiml=ask_twiml("CareBot update. " + text + " Anything else?", action))
+                    print(f"{YELLOW}  -> update spoken into the open 911 call{RESET} {DIM}({sid[-6:]}){RESET}", flush=True)
+                    self.report(target="911", kind="update", channel="call", status="delivered")
+                    return
+            except Exception as e:  # noqa: BLE001 - fall back to a new call
+                print(f"{YELLOW}  -> couldn't reach the open 911 call ({e}); calling again{RESET}", flush=True)
+        self.last_sid = None
+        if self._call(self.psap, psap_twiml("CareBot update. " + text, action), "911 stand-in (update)", "911",
+                      incident_id, voicemail=text, kind="update") and self.last_sid:
+            self.psap_calls[incident_id] = self.last_sid
+
     def pause(self) -> None:
         self.paused = True
+        if self.neighbors is not None:
+            self.neighbors.pause()
 
     def resume(self) -> None:
         self.paused = False
+        if self.neighbors is not None:
+            self.neighbors.resume()
 
 
 def check_account(env: dict | None = None) -> list[str]:

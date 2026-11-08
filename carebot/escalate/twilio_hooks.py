@@ -20,14 +20,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable
 
 from carebot.core import state as st
-from carebot.escalate.twilio_calls import ask_twiml, call_outcome, gate_answer, neighbor_reply_twiml
+from carebot.escalate.twilio_calls import (CALL_PROGRESS, TEXT_ERRORS, TEXT_PROGRESS, ask_twiml, call_outcome,
+                                           gate_answer, hold_twiml, neighbor_reply_twiml)
 
 EMPTY = '<?xml version="1.0" encoding="UTF-8"?><Response/>'
 
 
 def handle(path: str, query: dict, form: dict, post: Callable[[object], None], profile: dict,
            answer_question: Callable[[str, str, list], str] | None, public_url: str | None,
-           history: dict | None = None) -> str:
+           history: dict | None = None, report: Callable[..., None] | None = None) -> str:
     """Pure routing: returns the TwiML to send back, and posts events for the runtime.
     history: CallSid -> [(question, answer), ...] so the 911 agent remembers the conversation."""
     now = time.time()
@@ -51,6 +52,8 @@ def handle(path: str, query: dict, form: dict, post: Callable[[object], None], p
         question = (form.get("SpeechResult") or "").strip()
         action = f"{public_url}/twilio/psap?{urllib.parse.urlencode({'inc': query.get('inc', '')})}"
         if not question:
+            if "quiet" in query:  # nobody spoke: hold the line, never hang up on 911
+                return hold_twiml(action, int(query.get("quiet") or 1))
             return ask_twiml("I didn't catch that. You can ask me another question.", action)
         past = (history if history is not None else {}).setdefault(form.get("CallSid", "?"), [])
         reply = answer_question(query.get("inc", ""), question, list(past)) if answer_question else \
@@ -60,13 +63,20 @@ def handle(path: str, query: dict, form: dict, post: Callable[[object], None], p
         return ask_twiml(reply + " Anything else?", action)
     if path == "/twilio/sms-status":
         status, code = form.get("MessageStatus", ""), form.get("ErrorCode", "")
+        if report and query.get("target") and status in TEXT_PROGRESS:
+            report(target=query["target"], kind=query.get("kind", "alert"), channel=query.get("channel", "sms"),
+                   status=TEXT_PROGRESS[status])
         if status in ("delivered", "undelivered", "failed"):
-            why = f" (error {code}{': not registered for US texting (A2P 10DLC)' if code == '30034' else ''})" if code else ""
-            print(f"  <- SMS to {query.get('label', '?')}: {status.upper()}{why}", flush=True)
+            reason = TEXT_ERRORS.get(code)
+            why = f" (error {code}{': ' + reason if reason else ''})" if code else ""
+            print(f"  <- text to {query.get('label', '?')}: {status.upper()}{why}", flush=True)
         return EMPTY
     if path == "/twilio/status":
         outcome = call_outcome(form.get("CallStatus", ""))
         target = query.get("target", "")
+        progress = CALL_PROGRESS.get(form.get("CallStatus", ""))
+        if report and progress and target in ("family", "911"):
+            report(target=target, kind=query.get("kind", "alert"), channel="call", status=progress)
         if outcome and target in ("family", "911"):
             post(st.CallUpdate(target, outcome, now))
         if outcome:
@@ -84,6 +94,8 @@ class TwilioHooks:
         validator = RequestValidator(auth_token)
         public = public_url.rstrip("/")
         history: dict = {}  # CallSid -> [(question, answer)]: the 911 agent's memory of each call
+        self.report: Callable[..., None] | None = None  # live call / text progress for the map
+        hooks = self
 
         self.token = secrets.token_hex(8)  # proves a health check reached *this* server
         token = self.token
@@ -114,7 +126,8 @@ class TwilioHooks:
                     self.end_headers()
                     return
                 query = dict(urllib.parse.parse_qsl(parsed.query))
-                body = handle(parsed.path, query, form, post, profile, answer_question, public, history).encode()
+                body = handle(parsed.path, query, form, post, profile, answer_question, public, history,
+                              hooks.report).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/xml")
                 self.send_header("Content-Length", str(len(body)))

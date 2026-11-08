@@ -91,7 +91,8 @@ class PanTilt(ABC):
     @abstractmethod
     def is_moving(self) -> bool:
         """True until `settle_ms` has passed since the last command that changed the position.
-        SG90s have no feedback, so this is time-based. Vision skips frames while it is True."""
+        Hobby servos (our Hitec D625MW) have no position feedback, so this is time-based.
+        Vision skips frames while it is True."""
 
     @abstractmethod
     def close(self) -> None:
@@ -174,19 +175,19 @@ supply and keep the robot friendly at night).
 | `watching`    | Soft blue, a slow "breathing" fade (about 4 s cycle) | Normal monitoring                           |
 | `checking`    | Amber, a steady pulse (about 1 s cycle)              | Asking "Are you OK?"                        |
 | `alerted`     | Red, a fast flash (about 2 per second)               | Help is being called                        |
-| `help_coming` | Steady green                                         | A neighbor said YES, or someone is with her |
+| `help_coming` | Steady green                                         | A neighbor said YES, or someone is with him |
 | `error`       | Dim purple, steady                                   | A part failed and the robot is degraded     |
 
 ### What the app does with your drivers (for context only)
 
 | Robot state                 | Eyes          | Buzzer                    | Head                                          |
 | --------------------------- | ------------- | ------------------------- | --------------------------------------------- |
-| Monitoring                  | `watching`    | silent                    | follows Ruth; `home()` when nobody is in view |
+| Monitoring                  | `watching`    | silent                    | follows Sandy; `home()` when nobody is in view |
 | Possible fall               | unchanged     | silent                    | stops sending `point()` (frozen)              |
 | Check-in                    | `checking`    | `chirp()` before each ask | frozen                                        |
 | Alerted                     | `alerted`     | `start_alarm()`           | frozen                                        |
 | Button pressed              | unchanged     | `stop_alarm()`            | frozen                                        |
-| Neighbor coming or with her | `help_coming` | silent                    | frozen                                        |
+| Neighbor coming or with him | `help_coming` | silent                    | frozen                                        |
 
 The app calls `point()` about 10 to 15 times a second with small steps while following. Moving
 smoothly between steps is the caller's job; the driver just goes where it's told.
@@ -293,7 +294,7 @@ Confirm it on the real board and record the final version, with a photo, in `doc
   ```
 - **The PWM chip number moves between kernels.** After a reboot, check `ls /sys/class/pwm` and set
   `pantilt.pwm_chip`.
-- **SG90 calibration.** Find the real `min_us` and `max_us` for each servo by slowly widening the
+- **Servo calibration (Hitec D625MW).** Find the real `min_us` and `max_us` for each servo by slowly widening the
   range in `hwcheck` until it stops moving or buzzes, then back off 50 µs. Cheap servos differ.
 - **Bluetooth audio, headless.** Pair once with `bluetoothctl` (`pair`, `trust`, `connect`). Then
   add a systemd user unit in `setup/` that reconnects the JBL at boot and retries every 10 s. The

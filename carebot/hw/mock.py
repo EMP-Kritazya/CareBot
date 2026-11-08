@@ -23,7 +23,7 @@ def _out(enabled: bool, msg: str) -> None:
 class MockPanTilt(PanTilt):
     def __init__(self, cfg: dict | None = None) -> None:
         cfg = cfg or {}
-        self._pan_limit = tuple(cfg.get("pan", {}).get("limit_deg", (-80, 80)))
+        self._pan_limit = tuple(cfg.get("pan", {}).get("limit_deg", (-60, 60)))  # matches hardware_pi.yaml
         self._tilt_limit = tuple(cfg.get("tilt", {}).get("limit_deg", (-30, 45)))
         self._home = tuple(cfg.get("home_deg", (0, 0)))
         self._settle_s = cfg.get("settle_ms", 250) / 1000

@@ -4,13 +4,73 @@ hardware_config: config/hardware_pi.yaml   # only read when hardware: pi
 
 unit_id: robot-4A
 profile:
-  resident_name: Ruth
+  resident_name: Sandy
   resident_age: 81
+  resident_pronouns: he/him   # used by every spoken answer about him (never guessed)
   lives_alone: true
-  family_name: Priya
+  family_name: Suyog
+  family_relation: son      # who the family contact is to him (the 911 agent may say it)
   address: "West 115th Street, apartment 4A, New York, NY"
-  access_note: "Neighbor Daniel has a key."
+  access_note: "Neighbor Krit has a key."
+  neighbor_name: Krit           # stand-in until the receivers list exists
+  neighbor_street: 115th Street
 
 check_in:
   asks: 2                  # spoken asks before escalating
   listen_s: 15             # how long to wait for an answer after each ask
+  listen_s_demo: 5          # --demo: fall -> ask in 5 s -> alert about 15 s after the fall
+
+voice:
+  tts: espeak               # espeak-ng on the Pi (Piper can replace it)
+  rate_wpm: 175
+  mic: true                 # Vosk on the default microphone; typed answers always work too
+  vosk_model: models/vosk-model-small-en-us-0.15
+  input_device: null        # null = system default mic
+
+ai:                         # Claude in the middle: phrasing + understanding + 911 answers. Never decides actions.
+  enabled: true             # needs ANTHROPIC_API_KEY in .env; without it CareBot uses templates + keywords
+  model: claude-opus-5-5
+  effort: low               # fastest effort level (the model's own default would be medium)
+  timeout_s: 4              # phrasing + understanding: slower than this = template / keyword rules
+  dispatcher_timeout_s: 6   # 911 answers: slower than this = the offline fact-sheet answer
+  refusal_fallbacks: true   # if Claude's safety system declines a request, retry it server-side on a backup model
+  polish: true              # warmer phrasing of every line (checked by code before it's spoken)
+  understand: true          # free-form answers ("I think so, just dizzy") instead of keywords
+  comfort:
+    enabled: true           # while waiting for help: talk with him, pass on what he says
+    every_s: 30
+    listen_s: 10
+    every_s_demo: 15
+    listen_s_demo: 6
+
+camera:                     # the robot's eye: the Logitech USB webcam (OpenCV / V4L2, MJPG). Never leaves the robot.
+  source: usb               # finds the USB webcam by name (on the Pi 5, /dev/video0 isn't always it);
+                            # or a fixed device: /dev/video0 (`v4l2-ctl --list-devices`)
+  size: 1280x720            # 720p at 30 fps over USB (MJPG); the pose model resizes it anyway
+  rotate: 0                 # 0 | 90 | 180 | 270 if the head mounts it rotated
+  mirror: false             # the robot's view is never mirrored (head-follow direction depends on it)
+  fov_deg: [70, 43]         # Logitech C920 / C922 / Brio-class (78 deg diagonal). C270: [48, 28] (55 deg diagonal)
+
+follow:                     # head follow (pan only by default; tilt stays where it was installed)
+  enabled: true
+  deadband: 0.12            # no pan while he's within this far of the center (fraction of frame width)
+  gain: 0.5
+  max_step_deg: 4
+  rate_hz: 8
+  home_after_s: 3           # out of view this long: head goes home and waits
+  tilt_enabled: false       # tilting would corrupt the vertical measurements falls rely on
+
+pose:                       # on the Pi: NCNN (fast on ARM). Pick the size with `python -m apps.bench_pose`.
+  model: models/yolo11n-pose_416_ncnn_model   # exported with `python -m apps.bench_pose --export`; copy models/ to the Pi
+  imgsz: 416                # must match the exported model (640 / 416 / 320)
+
+twilio:
+  family: text              # text | call | both: how Suyog is told (text = by `texts` below)
+                            # (plain US SMS needs A2P 10DLC registration, or it fails with error 30034)
+  texts: whatsapp           # sms | whatsapp. WhatsApp: the family phone joins Twilio's sandbox (docs/TWILIO.md);
+                            # calls stay normal phone calls (Twilio can't place WhatsApp calls to US numbers)
+
+transport:                  # the map link (carebot/net/transport.py)
+  kind: mqtt              # memory: map in the same process (--map) | mqtt: the robot's Mosquitto broker
+  host: localhost           # the robot runs the broker; the laptop map connects to carebot.local
+  port: 1883

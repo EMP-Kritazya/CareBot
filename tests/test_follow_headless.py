@@ -59,7 +59,8 @@ def test_target_point_is_the_torso_middle():
 # ---------------------------------------------------------------- camera sources
 
 @pytest.mark.parametrize("spec,expected", [("picamera", "picamera"), ("pi", "picamera"), ("1", 1), (2, 2),
-                                           (None, 0), ("clip.mp4", "clip.mp4")])
+                                           (None, 0), ("clip.mp4", "clip.mp4"), ("usb", "usb"), ("Logitech", "usb"),
+                                           ("/dev/video2", "/dev/video2")])
 def test_parse_source(spec, expected):
     assert parse_source(spec) == expected
 
@@ -111,3 +112,32 @@ def test_headless_skeleton_view_never_shows_the_room(tmp_path):
         assert vision.show(tick.image) == ord("e")
     finally:
         vision.close()
+
+
+
+def test_finds_the_logitech_among_the_pi5_video_devices(tmp_path):
+    """Pi 5: /dev/video0.. are often the SoC's ISP/codec nodes; the webcam is the USB one (index 0)."""
+    from carebot.vision.camera import find_usb_camera
+    def node(n, name, bus, index="0"):
+        d = tmp_path / "class" / f"video{n}"
+        d.mkdir(parents=True)
+        (d / "name").write_text(name + "\n")
+        (d / "index").write_text(index + "\n")
+        target = tmp_path / "devices" / bus / f"video{n}"
+        target.mkdir(parents=True)
+        (d / "device").symlink_to(target)
+    node(0, "pispbe", "platform/1000880000.pisp_be")
+    node(19, "rpivid", "platform/rpivid")
+    node(21, "HD Pro Webcam C920", "platform/xhci/usb3/3-1/3-1:1.0")
+    node(22, "HD Pro Webcam C920", "platform/xhci/usb3/3-1/3-1:1.0", index="1")   # metadata node
+    assert find_usb_camera(str(tmp_path / "class")) == "/dev/video21"
+
+
+def test_no_usb_camera_found(tmp_path):
+    from carebot.vision.camera import find_usb_camera
+    assert find_usb_camera(str(tmp_path / "nothing")) is None
+
+
+def test_a_device_path_is_a_camera_not_a_video_file():
+    from carebot.vision.camera import is_device
+    assert is_device("/dev/video0") and is_device(0) and not is_device("clip.mp4")

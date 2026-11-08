@@ -84,8 +84,11 @@ class FallDetector:
         self.tracks[tid] = tr
         if self._is_up(feat, None):
             for old_id, old in list(self.tracks.items()):
+                # Up = torso upright AND hips back near standing height, measured against the fall it
+                # would end (a lying person re-detected low in the frame can read "upright" by angle).
                 if (old is not tr and old.state in ("candidate", "confirmed") and old.vanished_at is not None
-                        and abs(old.last_hip_x - feat.hip[0]) <= self.f["reappear_radius"]):
+                        and abs(old.last_hip_x - feat.hip[0]) <= self.f["reappear_radius"]
+                        and self._is_up(feat, old)):
                     kind = "fall_recovered" if old.state == "candidate" else "got_up"
                     events.append(VisionEvent(kind, old_id, self._who(old_id, old, frame), frame.ts))
                     del self.tracks[old_id]
@@ -301,7 +304,11 @@ class Detectors:
 
     def resident_posture(self, frame: Frame) -> Literal["upright", "sitting", "lying", "out_of_view"]:
         """What the camera sees of the resident right now (for button attribution)."""
-        person = frame.person(frame.resident_track_id)
+        return self.posture_of(frame, frame.resident_track_id)
+
+    def posture_of(self, frame: Frame, track_id: int | None) -> Literal["upright", "sitting", "lying", "out_of_view"]:
+        """What the camera sees of one tracked person right now."""
+        person = frame.person(track_id) if track_id is not None else None
         if person is None:
             return "out_of_view"
         view = body_view(person, frame.aspect, self.cfg["min_kp_conf"], self.cfg["lying_deg"],

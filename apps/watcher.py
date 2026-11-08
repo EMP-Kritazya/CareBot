@@ -4,10 +4,13 @@
     python -m apps.watcher --webcam 1 --demo             # short demo timers (for the video)
     python -m apps.watcher --webcam 1 --stillness 10     # every stillness timer = 10 s (quick test)
     python -m apps.watcher --webcam 1 --sim-neighbor 20  # a simulated neighbor says YES 20 s after alerting
-    python -m apps.watcher --config config/pi.yaml --headless   # on the robot (Pi camera, SSH)
+    python -m apps.watcher --config config/pi.yaml --headless   # on the robot (Logitech webcam, SSH)
     python -m apps.watcher --webcam 1 --follow           # laptop: also run head-follow (angles printed)
     python -m apps.watcher --webcam 1 --twilio-dry-run   # print exactly what each call would say
     python -m apps.watcher --webcam 1 --twilio           # real calls (upgraded account; see docs/TWILIO.md)
+    python -m apps.watcher --webcam 1 --map              # + the neighborhood map at http://localhost:8050
+    python -m apps.watcher --config config/pi.yaml --headless   # the robot publishes to its own MQTT broker;
+                                                         # the laptop runs: python -m dashboard.server
 
 On the laptop CareBot really speaks (Mac voice) and really listens (Vosk on your mic). The beep,
 eyes and button are terminal stand-ins, and alerts are printed instead of sent (Twilio is next).
@@ -93,7 +96,7 @@ def command(key: str, runtime: Runtime, neighbor: tuple[str, str | None]) -> boo
     return True
 
 
-def make_notifier(args, profile: dict, post, answer):
+def make_notifier(args, profile: dict, post, answer, cfg_twilio: dict | None = None):
     """Console (default), Twilio dry run, or real Twilio calls (+ the webhook server if there's a tunnel)."""
     if not (args.twilio or args.twilio_dry_run):
         return ConsoleNotifier(profile, post=post, sim_neighbor_after_s=args.sim_neighbor), None
@@ -103,9 +106,11 @@ def make_notifier(args, profile: dict, post, answer):
     from carebot.escalate.twilio_calls import TwilioNotifier, check_account
 
     load_env()
+    cfg_twilio = cfg_twilio or {}
     if args.twilio_dry_run:
         print("Twilio: DRY RUN. Calls are printed, nobody is called.", flush=True)
-        return TwilioNotifier(profile, post, dry_run=True), None
+        return TwilioNotifier(profile, post, dry_run=True, family_via=cfg_twilio.get("family", "text"),
+                              text_via=cfg_twilio.get("texts", "sms")), None
     problems = check_account()
     if problems:
         print("Twilio not ready, using the console instead:\n  - " + "\n  - ".join(problems), flush=True)
@@ -120,17 +125,20 @@ def make_notifier(args, profile: dict, post, answer):
         if problem:
             print(f"Twilio: real calls, but ONE-WAY: the tunnel check failed ({problem})", flush=True)
             hooks.close()
-            return TwilioNotifier(profile, post, public_url=None), None
+            return TwilioNotifier(profile, post, public_url=None, family_via=cfg_twilio.get("family", "text"),
+                                  text_via=cfg_twilio.get("texts", "sms")), None
         print(f"Twilio: real calls. Tunnel OK: answers come back via {public} -> localhost:{hooks.port}", flush=True)
     else:
         print("Twilio: real calls, one-way (no PUBLIC_BASE_URL: no key presses or 911 questions). "
               "See docs/TWILIO.md for the tunnel.", flush=True)
-    return TwilioNotifier(profile, post, public_url=public or None), hooks
+    family_via = cfg_twilio.get("family", "text")
+    return TwilioNotifier(profile, post, public_url=public or None, family_via=family_via,
+                          text_via=cfg_twilio.get("texts", "sms")), hooks
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--camera", help="picamera (Raspberry Pi camera), a webcam index, or a video file "
+    ap.add_argument("--camera", help="usb (the robot's Logitech webcam), a webcam index or /dev/videoN, or a video file "
                                      "(default: camera.source in the config)")
     ap.add_argument("--webcam", type=int, help="same as --camera N")
     ap.add_argument("--video")
@@ -146,7 +154,10 @@ def main() -> None:
     ap.add_argument("--stillness", type=float, metavar="SECONDS",
                     help="set every stillness timer to this many seconds (quick testing)")
     ap.add_argument("--sim-neighbor", type=float, metavar="SECONDS",
-                    help="a simulated neighbor replies YES this long after the alert goes out")
+                    help="simulate the neighbors here; the ones who say YES do so this long after being texted")
+    ap.add_argument("--map", action="store_true", help="run the neighborhood map in this process (laptop)")
+    ap.add_argument("--map-port", type=int, default=8050)
+    ap.add_argument("--mqtt", metavar="HOST", help="publish to this MQTT broker (default: transport in the config)")
     ap.add_argument("--no-mic", action="store_true", help="typed answers only")
     ap.add_argument("--no-ai", action="store_true", help="templates + keywords only (no Claude)")
     ap.add_argument("--twilio", action="store_true", help="real phone calls (needs an upgraded Twilio account)")
@@ -183,10 +194,12 @@ def main() -> None:
     hw = make_hardware(cfg["hardware"], cfg.get("hw"))
     cam_cfg = {**cfg.get("hw", {}).get("camera", {}), **cfg.get("camera", {})}
     camera = args.camera if args.camera is not None else (args.webcam if args.webcam is not None
-                                                          else cam_cfg.get("source", 0))
+                                                          else cam_cfg.get("source", "picamera" if cam_cfg.get("type") == "csi"
+                                                                   else cam_cfg.get("index", 0)))
     http_port = args.http_port or (8000 if args.headless else None)
     vision = LiveVision(cfg, window="CareBot (q to quit)", camera=camera, video=args.video,
                         size=args.size or cam_cfg.get("size"), rotate=int(cam_cfg.get("rotate", 0)),
+                        mirror=cam_cfg.get("mirror"),
                         headless=args.headless, view=args.view, http_port=http_port)
 
     # Head follow: pan follows Sandy; tilt stays put (falls are measured vertically); freezes during
@@ -218,10 +231,46 @@ def main() -> None:
                         listen_s=check_in.get("listen_s", 15), phraser=phraser, understander=understander,
                         comfort_listen_s=comfort.get("listen_s", 10))
     notifier, hooks = make_notifier(args, profile, post=lambda e: runtime.post(e),
-                                    answer=lambda inc_id, q, past: answer_for(inc_id, q, past))
+                                    answer=lambda inc_id, q, past: answer_for(inc_id, q, past),
+                                    cfg_twilio=cfg.get("twilio", {}))
     runtime = Runtime(machine, hw, voice, notifier, posture=lambda: vision.resident_posture(latest["frame"]),
                       restart_stillness=vision.restart_stillness,
                       comfort_every_s=comfort.get("every_s", 30) if comfort.get("enabled", True) else None)
+
+    # The map link: events out, Trigger / Reset / simulated replies in; neighbors in waves.
+    from carebot.net.bridge import attach_map, run_sim_receivers
+    from carebot.net.transport import make_transport
+    transport = make_transport(cfg, args.mqtt)
+    link = attach_map(runtime, notifier, transport, cfg, demo=args.demo)
+    if hooks is not None:
+        hooks.report = link.report  # real call / text progress (Twilio status callbacks) -> the map
+    if link.waves is not None:
+        print(f"Neighbors: {len(link.waves.ranked)} who agreed to help, in waves of {link.waves.wave_size} "
+              f"every {link.waves.wave_s:g} s (nearest first). Map link: {transport.name}", flush=True)
+    if args.map:
+        from dashboard.server import serve_in_thread
+        serve_in_thread(transport, cfg, port=args.map_port, yes_after_s=args.sim_neighbor)
+        print(f"Map: http://localhost:{args.map_port}", flush=True)
+    elif args.sim_neighbor is not None:
+        run_sim_receivers(transport, yes_after_s=args.sim_neighbor)
+
+    def camera_now(inc) -> str:
+        """What the camera shows right now, about the person involved (not always Sandy), and how
+        many people are in view. Facts only, for the 911 fact sheet."""
+        frame = latest["frame"]
+        seen = {"lying": "lying down", "sitting": "sitting", "upright": "upright",
+                "out_of_view": "not visible to the camera"}
+        n = len(frame.people) if frame is not None else 0
+        name = profile.get("resident_name", "the resident")
+        if inc.who == "resident":
+            about = f"{name}: {seen.get(vision.resident_posture(frame), 'unclear')}"
+        else:
+            fell = vision.posture_of(frame, inc.track_id)
+            about = (f"the person who fell (not {name}): {seen.get(fell, 'unclear')}"
+                     + ("" if fell != "out_of_view" else " (the tracker may have lost them)"))
+            if frame is not None and frame.resident_track_id is not None:
+                about += f"; {name}: {seen.get(vision.resident_posture(frame), 'unclear')}"
+        return f"{n} {'person' if n == 1 else 'people'} in view; {about} (as of {time.strftime('%-I:%M %p')})"
 
     def answer_for(incident_id: str, question: str, history: list | None = None) -> str:
         """The 911 dispatcher asked by phone: answer from this incident's facts only."""
@@ -230,10 +279,8 @@ def main() -> None:
                     if i.id == incident_id), s.incident)
         if inc is None:
             return "I don't know. There is no active incident."
-        posture = vision.resident_posture(latest["frame"])
-        seen = {"lying": "lying down", "sitting": "sitting", "upright": "upright",
-                "out_of_view": "not in view of the camera"}.get(posture, posture)
-        facts = fact_sheet(inc, profile, time.time(), camera_now=f"{seen} (as of {time.strftime('%-I:%M %p')})")
+        facts = fact_sheet(inc, profile, time.time(), camera_now=camera_now(inc),
+                           calls_911_back=bool(getattr(notifier, "psap_updates", False)))
         return answer_dispatcher(question, facts, ai, history)[0]
 
     def dispatcher(question: str) -> None:
@@ -242,10 +289,7 @@ def main() -> None:
         if inc is None:
             print("  (no incident yet: trigger one with t, or fall)", flush=True)
             return
-        posture = vision.resident_posture(latest["frame"])
-        seen = {"lying": "lying down", "sitting": "sitting", "upright": "upright",
-                "out_of_view": "not in view of the camera"}.get(posture, posture)
-        facts = fact_sheet(inc, profile, time.time(), camera_now=f"{seen} (as of {time.strftime('%-I:%M %p')})")
+        facts = fact_sheet(inc, profile, time.time(), camera_now=camera_now(inc))
         reply, source = answer_dispatcher(question, facts, ai)
         print(f"  911: {question}\n  CareBot ({source}): {reply}", flush=True)
     voice.start()

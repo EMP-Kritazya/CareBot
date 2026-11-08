@@ -195,6 +195,8 @@ class SendUpdate:
     status: str
     quote: str
     source: str
+    helper: str | None = None   # source "neighbor": who replied YES (and their street)
+    street: str | None = None
 
 
 @dataclass(frozen=True)
@@ -365,22 +367,27 @@ class Machine:
             inc = replace(inc, alerts_sent=True, channels=e.channels,
                           neighbor="alerted" if "neighbors" in e.channels and inc.neighbor == "none" else inc.neighbor)
             inc = inc.log(e.ts, "escalated", ", ".join(e.channels) or "nothing reached")
-            return replace(s, incident=inc), [Say(script.getting_help(self.p, e.channels))]
+            return replace(s, incident=inc), [Say(script.getting_help(self.p, e.channels)),
+                                              Publish({"type": "sent", "incident_id": inc.id,
+                                                       "channels": list(e.channels), "ts": e.ts})]
         if isinstance(e, ReceiverReply):
             inc = inc.log(e.ts, "receiver", f"{e.name}: {e.reply}")
             s = replace(s, incident=inc)
             if e.reply == "yes" and inc.neighbor in ("none", "alerted"):
                 inc = replace(inc, neighbor="on_the_way", helper=e.name)
+                # Sandy hears it, and the family + 911 are updated with the same fact.
                 return replace(s, incident=inc), [
                     SetEyes("help_coming"), Say(script.helper_coming(e.name, e.street)),
+                    SendUpdate(inc.id, "on_the_way", "", "neighbor", helper=e.name, street=e.street),
                     Publish({"type": "update", "incident_id": inc.id, "status": "on_the_way",
-                             "helper": e.name, "ts": e.ts})]
+                             "helper": e.name, "source": "neighbor", "ts": e.ts})]
             return s, []
         if isinstance(e, CallUpdate):
             s = replace(s, incident=inc.log(e.ts, "call", f"{e.target}: {e.status}"))
+            pub = Publish({"type": "call", "incident_id": inc.id, "target": e.target, "status": e.status, "ts": e.ts})
             if e.target == "911" and e.status == "unanswered":
-                return s, [Say(script.psap_unanswered())]
-            return s, []
+                return s, [Say(script.psap_unanswered()), pub]
+            return s, [pub]
         if isinstance(e, GotUp):
             if not self._same_person(inc, e) or inc.got_up_at is not None:
                 return s, []
@@ -502,9 +509,11 @@ class Machine:
             inc = inc.log(ts, "note", note)
         inc = inc.log(ts, "alerted", "")
         s = replace(s, mode="ALERTED", incident=inc, awaiting=None, asks_in_round=0)
-        return s, [SetEyes("alerted"), StartAlarm(), Escalate(inc.id, include_neighbors),
+        # The map hears "alert" before the sends start (so its timeline reads in order).
+        return s, [SetEyes("alerted"), StartAlarm(),
                    Publish({"type": "alert", "incident_id": inc.id, "event": inc.event,
-                            "who": inc.who, "ts": ts})]
+                            "who": inc.who, "ts": ts}),
+                   Escalate(inc.id, include_neighbors)]
 
     def _resume(self, s: Robot, extra: list[Action] | None = None):
         inc = s.incident

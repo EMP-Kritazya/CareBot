@@ -18,7 +18,8 @@ fall:
   drop_torso: 0.5           # hip midpoint drops >= this many torso lengths (onto a sofa is ~0.8)...
   drop_window_s: 1.2        # ...within this long (lying down on purpose is slower than this)
   torso_deg: 45             # and the torso tips at least this far from upright while dropping
-  hold_s: 10.0              # then stays down this long (in view); she gets this long to get back up
+  hold_s: 10.0              # then stays down this long (in view); he gets this long to get back up
+  hold_s_demo: 5.0          # --demo: shorter, so the video moves
   out_of_view_s: 10.0       # or vanishes and doesn't come back upright within this long
   vanish_after_drop_s: 0.7  # a fast drop then vanishing (behind the bed) counts as a fall start
   recover_torso_deg: 35     # back up = torso under this...
@@ -27,19 +28,31 @@ fall:
   approach_growth: 1.2      # torso grew this much during the drop = walking toward the camera
 
 stillness:
-  seconds: 30               # demo value; a real deployment would use minutes
+  profile: real             # real | demo (`--demo` picks demo). Timers below are per profile.
+  timers:                   # seconds of complete stillness before CareBot asks "Are you OK?"
+    real: {sitting: 1200, upright: 180, slumped: 60}   # calm in a chair 20 min, standing 3 min, slumped 1 min
+    demo: {sitting: 10, upright: 7, slumped: 5}
+  cooldown_s: {real: 600, demo: 5}   # after any incident closes: no stillness checks (falls still count)
+  backoff_factor: 2         # after "I'm OK" to a stillness check, the next one waits this much longer...
+  backoff_max: 4            # ...up to this multiple; resets once he's up and moving
+  active_move: 1.5          # moved this many torso lengths in a window, or stood up = active again
+  slump:
+    head_low: 0.1           # head less than this many shoulder widths above the shoulder line = hanging
+    lean_deg: 30            # seated with the torso leaning this far over (below lying_deg) = slumped
   motion_threshold: 0.08    # moved this many torso lengths (median keypoint)...
   window_s: 1.0             # ...compared with any pose from the last window_s = not still
   min_kp_conf: 0.5          # movement is measured only on confident keypoints (hidden joints jitter)
-  postures: [sitting, upright, upper_body]   # upper_body: hips hidden, head above shoulders
+  postures: [sitting, upright, upper_body, slumped]   # upper_body (hips hidden, head up) uses the sitting timer
                             # lying still is sleeping; lying on the floor is the fall detector's job
 
 identity:                   # face lock: which tracked person is the resident
   enrolled: data/faces/resident.npz   # made by `python -m apps.enroll` (local only, git-ignored)
-  match_threshold: 0.363    # SFace cosine similarity at or above this = the resident (OpenCV's value)
-  reject_threshold: 0.2     # a clear face below this = definitely someone else
+  match_threshold: 0.42     # SFace cosine similarity at or above this counts as a match (OpenCV's default is 0.363)
+  confirm_hits: 2           # ...on this many face checks in a row before "Sandy" moves to that person
+  switch_margin: 0.08       # two people both matching: the best must win by this much, or nothing changes
+  reject_threshold: 0.30    # a clear face below this = definitely someone else
   every_n_frames: 5         # how often faces are checked; the track carries the lock in between
   relock_after_s: 2.0       # lock is released this long after the resident's track disappears
-  assume_single_is_resident: true   # no lock + exactly one person in view = assume it's her
+  assume_single_is_resident: true   # no lock + one person in view = assume it's him, unless his face was seen and didn't match
   face_score: 0.6           # YuNet face detection confidence
   min_face_px: 20           # skip head crops smaller than this (too far to recognize)

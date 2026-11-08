@@ -1,7 +1,7 @@
 """Pose speed check: which model and input size to use on this machine (run it on the Pi).
 
     python -m apps.bench_pose                    # benchmark every model found, on sample photos
-    python -m apps.bench_pose --camera picamera  # ...on live Pi camera frames
+    python -m apps.bench_pose --camera usb       # ...on live frames from the robot's webcam
     python -m apps.bench_pose --export           # (re)export NCNN models at 640 / 416 / 320 into models/
 
 For each model it prints the median time per frame, the frames per second, and how closely its
@@ -76,7 +76,7 @@ def agreement(ref: list, got: list) -> float | None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--export", action="store_true", help="export NCNN models first")
-    ap.add_argument("--camera", help="benchmark on live frames: picamera or a webcam index")
+    ap.add_argument("--camera", help="benchmark on live frames: usb (the robot's webcam), a webcam index, or picamera")
     ap.add_argument("--frames", type=int, default=30)
     args = ap.parse_args()
     if args.export:

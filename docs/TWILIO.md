@@ -50,11 +50,31 @@ At startup you'll see `Twilio: real calls. Answers come back via https://… -> 
 In the terminal, the calls show as `-> calling Krit (neighbor)`, key presses as `<- Krit pressed 1: YES`,
 questions as `<- 911 asked: …` / `-> CareBot: …`, and call results as `<- call to 911: answered`.
 
+CareBot never hangs up on the 911 call: when the dispatcher is quiet it keeps listening, says "CareBot is
+still on the line" about every 30 s, and only hangs up after about 20 minutes of silence. Each update
+(e.g. Krit's "we're taking him to the hospital") is spoken into that open call; if the dispatcher
+already hung up, CareBot calls again, and that call stays open for questions too.
+
 On the robot, run the tunnel on the Pi (`sudo apt install cloudflared`, or the .deb from Cloudflare) and add
 `--twilio` to the watcher command.
 
-## Texts (later)
+## Texts: WhatsApp (today) or SMS (after registration)
 
-Sending app texts to US numbers requires **A2P 10DLC registration**; the "sole proprietor" option is
-quickest, but approval can still take days. If you want texts, start it now: Console → Messaging →
-Regulatory compliance. Until it's approved, CareBot stays voice-only.
+Ordinary SMS to US numbers needs **A2P 10DLC registration** (Console → Messaging → Regulatory
+compliance; days). Until then carriers block it (error 30034). So CareBot sends its texts by
+**WhatsApp** (`twilio.texts: whatsapp` in `config/*.yaml`). Calls stay normal phone calls: Twilio
+can't place WhatsApp calls to US numbers.
+
+1. Console → Messaging → Try it out → **Send a WhatsApp message**. It shows the sandbox number
+   (+1 415 523 8886) and a join code like `join two-words`.
+2. On the FAMILY_PHONE (WhatsApp installed, same number as in `.env`), send `join two-words` to
+   +1 415 523 8886. WhatsApp replies that you joined.
+3. Nothing else in `.env` is needed (`TWILIO_WHATSAPP_FROM` is only for your own WhatsApp sender).
+4. Test: `python -m apps.live_incident --public-url <tunnel> --texts whatsapp`.
+
+Sandbox rules, so the demo doesn't fail:
+- Joining lasts **3 days**. After that, send the join code again.
+- CareBot's texts are free-form, so they only arrive within **24 hours of the last message that phone
+  sent to the sandbox**. Before filming, send "hi" from the family phone. Error 63016 means the
+  24 hours ran out; 63015 means the phone hasn't joined.
+- At most one message every 3 seconds (CareBot sends far fewer).

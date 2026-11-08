@@ -1,12 +1,12 @@
-"""Gemini in the middle: guardrails, fallbacks, understanding, comfort windows, 911 answers.
-No network: a fake Gemini returns canned replies (or fails)."""
+"""Claude in the middle: guardrails, fallbacks, understanding, comfort windows, 911 answers.
+No network: a fake model returns canned replies (or fails)."""
 
 import time
 
 import pytest
 
 from carebot.ai.dispatcher import IDK, answer, check_answer, offline_answer
-from carebot.ai.gemini import NoAI
+from carebot.ai.llm import NoAI
 from carebot.ai.phrasing import Phraser, check_line, fixed_lines
 from carebot.ai.understand import Understander
 from carebot.config import load_config
@@ -105,13 +105,13 @@ def test_symptoms_count_as_help_even_if_he_says_ok():
     assert u.check_in("I think so, just a bit dizzy") == "help"
 
 
-def test_gemini_understands_a_free_form_ok():
+def test_claude_understands_a_free_form_ok():
     u = Understander(FakeAI({"intent": "ok", "concern": ""}))
     assert u.check_in("yeah yeah, I just sat down too fast, all good") == "ok"
-    assert u.last_source == "gemini"
+    assert u.last_source == "claude"
 
 
-def test_gemini_concern_means_help():
+def test_claude_concern_means_help():
     u = Understander(FakeAI({"intent": "ok", "concern": "feels strange"}))
     assert u.check_in("I feel a little strange") == "help"
 
@@ -126,7 +126,7 @@ def test_report_never_downgrades_hospital():
     assert u.report("I'm his neighbor, we're taking him to the hospital") == "hospital"
 
 
-def test_report_from_gemini():
+def test_report_from_claude():
     u = Understander(FakeAI({"status": "ambulance_here"}))
     assert u.report("the medics just walked in") == "ambulance_here"
 
@@ -272,19 +272,20 @@ def test_offline_where_gives_address_and_key():
     assert "115th Street" in a and "Krit has a key" in a
 
 
-def test_gemini_answer_is_filtered_when_it_claims_his_condition():
+def test_claude_answer_is_filtered_when_it_claims_his_condition():
     f = facts_after_alert()
     claim = FakeAI({"answer": "He is breathing but unconscious.", "from_facts": True})
-    assert answer("Is he breathing?", f, claim) == (IDK, "filtered")
+    reply, source = answer("Is he breathing?", f, claim)
+    assert source == "filtered" and reply.startswith(IDK) and "camera shows him" in reply  # facts, not a bare "I don't know"
 
 
-def test_gemini_may_repeat_his_own_words():
+def test_claude_may_repeat_his_own_words():
     f = facts_after_alert(quote="my hip really hurts")
     ok = FakeAI({"answer": "Sandy said: \"my hip really hurts\".", "from_facts": True})
-    assert answer("Did he say anything?", f, ok)[1] == "gemini"
+    assert answer("Did he say anything?", f, ok)[1] == "claude"
 
 
-def test_gemini_failure_falls_back_to_offline():
+def test_claude_failure_falls_back_to_offline():
     f = facts_after_alert()
     assert answer("Where is he?", f, FakeAI(None))[1] == "offline"
 
@@ -309,3 +310,94 @@ def test_declining_to_predict_is_fine_but_predicting_is_not():
 def test_offline_eta_question_never_gives_an_eta():
     a = offline_answer("How long until the neighbor arrives?", facts_after_alert())
     assert a.startswith("I don't know when anyone will arrive.") and "Krit" in a
+
+
+# ---- from the live 911 test call
+
+def test_whats_your_emergency_gets_the_summary():
+    a = offline_answer("Hey, what's your emergency?", facts_after_alert())
+    assert a.startswith("This is CareBot") and "115th Street" in a and "fall" in a
+
+
+def test_call_screener_hears_who_is_calling():
+    a = offline_answer("Hi, if you record your name and reason for calling, I'll see if this person is available.",
+                       facts_after_alert())
+    assert a.startswith("This is CareBot")
+
+
+def test_position_question_reports_the_camera():
+    a = offline_answer("Person still on the ground or is are they stood up?", facts_after_alert())
+    assert "camera shows him lying down" in a
+
+
+def test_condition_answer_adds_what_the_camera_sees():
+    a = offline_answer("Can he move?", facts_after_alert())
+    assert a.startswith(IDK) and "camera shows him lying down" in a
+
+
+def test_who_is_coming_sounds_natural():
+    a = offline_answer("Did anybody come?", facts_after_alert())
+    assert "Krit" in a and "CareBot has contacted" in a
+
+
+
+def test_conversation_history_reaches_claude():
+    seen = {}
+
+    class Recording(FakeAI):
+        def generate(self, system, prompt, schema=None, **kw):
+            seen["prompt"] = prompt
+            return {"answer": "West 115th Street, apartment 4A.", "from_facts": True}
+
+    answer("And where is that?", facts_after_alert(), Recording(), history=[("What happened?", "He fell.")])
+    assert "DISPATCHER: What happened?\nCAREBOT: He fell." in seen["prompt"]
+
+
+def test_pronouns_come_from_the_profile_never_guessed():
+    f = facts_after_alert()
+    assert f["resident"]["pronouns"] == "he/him"
+    assert "camera shows him" in offline_answer("Is he breathing?", f)
+    assert "He did not answer" in offline_answer("Why are you calling?", f)
+    f["resident"]["pronouns"] = "she/her"
+    assert "camera shows her" in offline_answer("Is she breathing?", f)
+    assert "She did not answer" in offline_answer("Why are you calling?", f)
+
+
+
+def test_admitting_not_knowing_passes_but_a_claim_does_not():
+    """Live call: "Is he hurt?" -> Claude's honest "I don't know if he's hurt" was being blocked."""
+    f = facts_after_alert()
+    assert check_answer("I don't know if he's hurt; the camera shows him lying on the floor.", f)
+    assert check_answer("I can't tell whether anything is broken.", f)
+    assert not check_answer("He looks hurt.", f)
+    assert not check_answer("I don't know, but he looks hurt.", f)
+    assert not check_answer("He's breathing and I don't know about the rest.", f)
+
+
+
+def test_cant_monitor_is_an_honest_admission():
+    f = facts_after_alert()
+    assert check_answer("I can't monitor his breathing; the camera shows him lying on the floor.", f)
+
+
+
+def test_fact_sheet_names_the_family_contact_and_that_replies_dont_come_back():
+    f = facts_after_alert()
+    assert "Suyog" in f["family_contact"] and "son" in f["family_contact"]
+    assert "don't come back" in f["family_contact"]
+
+
+
+def test_comfort_talk_is_not_counted_as_a_check_in():
+    s = Scenario()
+    s.t = time.time() - 120
+    s.fall()
+    s.silence()
+    s.silence()
+    s.sent()
+    s.send(st.ComfortWindow(s.t))
+    s.silence()
+    f = fact_sheet(s.incident, PROFILE, time.time())
+    assert sum("no answer" in c for c in f["check_ins"]) == 2
+    assert any("comfort" in c for c in f["other_prompts"])
+    assert "no answer to 2 spoken check-ins" in briefing(f)

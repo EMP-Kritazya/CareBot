@@ -164,7 +164,8 @@ class LiveVision:
         w, h = self.cam.size()
         print(f"{self.cam.name}: {w}x{h}", flush=True)
         self.frames = self._read_frames()
-        # Mirror only a laptop webcam preview (it feels natural). Never the robot's camera or a file.
+        # Mirror only a laptop webcam preview (it feels natural). Never the robot's camera (pi.yaml sets
+        # camera.mirror: false) or a file.
         self.mirror = (parse_source(camera) != "picamera" and video is None) if mirror is None else mirror
         self.server = None
         if http_port:
@@ -276,6 +277,9 @@ class LiveVision:
 
     def resident_posture(self, frame: Frame | None) -> str:
         return self.detectors.resident_posture(frame) if frame else "out_of_view"
+
+    def posture_of(self, frame: Frame | None, track_id: int | None) -> str:
+        return self.detectors.posture_of(frame, track_id) if frame else "out_of_view"
 
     # ---- drawing
 
