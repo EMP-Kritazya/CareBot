@@ -223,7 +223,7 @@ Code enforces these tables; the prompt alone doesn't.
 | Buzzer | GPIO 17 |
 | Button | GPIO 27, through gpiozero with debounce |
 | Speaker | JBL over Bluetooth, reconnected at boot by a systemd unit. Fallback: AUX through a USB sound card. |
-| Mic | INMP441 over I2S. Until it works, the Logitech's built-in mic. |
+| Mic | The Logitech webcam's built-in mic (no INMP441). On stage: the laptop mic via `apps.remote_mic` (text only). |
 | Lighting | A night-light in the scene, because the webcam is nearly blind in the dark |
 | Network | Mosquitto on the robot, on our own travel router. The robot needs the internet only for Twilio and Claude. |
 
@@ -376,7 +376,7 @@ We say these on screen:
 | --- | --- |
 | YOLO is too slow on the Pi 5 | Image size 320, or MediaPipe for one person |
 | Bluetooth drops | AUX through a USB sound card |
-| The INMP441 arrives late | The webcam mic |
+| The webcam mic is too far from the speaker on stage | `apps.remote_mic` on the laptop; typed answers over SSH |
 | The servos jitter | Hardware PWM, a deadband, freezing during the check-in |
 | Twilio trial limits | Verify every number early |
 | The venue Wi-Fi | Our own router |

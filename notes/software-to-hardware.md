@@ -55,3 +55,19 @@ Only the software side (Kritazya) writes here. Newest at the bottom, under a tim
   (button, buzzer, eyes, pan-tilt with the power checklist, camera). Venv keeps
   `--system-site-packages` for gpiozero/lgpio, as your requirements-pi.txt says.
 - Still needed from you: the Logitech model (sets `camera.fov_deg`), and the calibrated pan-tilt numbers.
+
+## 2026-11-08: no INMP441; audio order; your files I touched
+
+- No INMP441: the mic is the Logitech Brio 101's own mic (works: about -25 dBFS room sound). On stage the
+  laptop's mic can act as the robot's ears: `apps.remote_mic` sends text only, only while CareBot listens.
+- New `setup/wireplumber-carebot.conf` (your folder): JBL first whenever connected, then a USB speaker,
+  then HDMI; Brio mic as the default source. Install steps at the top of the file.
+- The Pi needs `sudo apt install -y espeak-ng libportaudio2 pipewire-alsa` (was missing: no voice, no mic).
+- `config/hardware_pi.yaml`: tilt `invert: true` (`a 0 20` tilted down), `limit_deg: [-45, 30]` (the
+  physical range that worked before inverting).
+- `apps/hwcheck.py`: pan-tilt moves glide at about 25 deg/s; the sweep asks first and covers half the
+  range (`--full` for all of it); Ctrl+C stops a move.
+- Please add to `requirements-pi.txt`: `Adafruit-Blinka-Raspberry-Pi-PWM` and
+  `Adafruit-Blinka-Raspberry-Pi5-Neopixel` (Blinka asked to install them on the first watcher start).
+- The Pi has no fan: it reached 86 C and froze with pose at full speed. `pose.max_fps: 5` for now.
+

@@ -39,8 +39,10 @@ A laptop map shows it all. PLAN.md is the source of truth for stories, rules and
   - LED eyes: a NeoPixel arc on SPI GPIO 10 (`adafruit-circuitpython-neopixel-spi`) through a level
     shifter. rpi_ws281x doesn't run on the Pi 5.
   - Buzzer on GPIO 17. The button is on GPIO 27.
-  - Speech out: a JBL speaker over Bluetooth (fallback: AUX through a USB sound card). Speech in: an
-    INMP441 I2S mic (fallback: the Logitech's built-in mic).
+  - Speech out: a JBL speaker over Bluetooth (fallback: a USB speaker / sound card, then HDMI;
+    `setup/wireplumber-carebot.conf` sets the order). Speech in: the Logitech webcam's built-in mic
+    (there is no INMP441). On stage: the laptop's mic via `apps.remote_mic` (sends text only, only while
+    CareBot listens). Typed answers in the watcher's terminal always work as the fallback.
   - The robot runs the Mosquitto broker.
 - **The laptop:** the map dashboard (FastAPI + WebSocket + Leaflet/OSM). It subscribes to the robot
   over MQTT, simulates the receivers that don't have real phones, and has a "Trigger alert" button.
@@ -176,6 +178,7 @@ python -m apps.watcher --webcam 1 --sim-neighbor 20 --demo   # short demo timers
 python -m apps.vision_live --webcam 1  # vision only (skeletons, face lock, detector events)
 python -m apps.enroll --name Sandy    # face enrollment (local only)
 python -m apps.score                 # replay scorer on labeled clips
+python -m apps.remote_mic --mqtt carebot.local   # laptop mic as the robot's ears (text only, while it listens)
 python -m apps.redteam911            # 911 answers red-team (Claude if ANTHROPIC_API_KEY is set; --no-ai)
 python -m apps.watcher --webcam 1 --no-ai   # templates + keywords only
 python -m apps.watcher --config config/pi.yaml --headless   # the robot: Logitech webcam, no window, keys typed over SSH,

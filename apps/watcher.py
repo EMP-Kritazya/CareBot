@@ -252,6 +252,8 @@ def main() -> None:
     from carebot.net.transport import make_transport
     transport = make_transport(cfg, args.mqtt)
     link = attach_map(runtime, notifier, transport, cfg, demo=args.demo)
+    link.on_heard = listener.type          # the laptop mic (apps.remote_mic): transcripts only
+    listener.on_state = link.listening     # ...which transcribes only while CareBot listens
     if hooks is not None:
         hooks.report = link.report  # real call / text progress (Twilio status callbacks) -> the map
     if link.waves is not None:

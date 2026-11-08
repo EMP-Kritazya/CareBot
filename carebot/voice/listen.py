@@ -92,6 +92,16 @@ class Listener:
         self.typed: queue.Queue[str] = queue.Queue()
         self.listening = threading.Event()
         self.mode: str | None = None
+        # Told when listening starts (after CareBot has finished speaking) and stops. The laptop mic
+        # (apps.remote_mic) transcribes only in between, so the speaker's own voice is never an answer.
+        self.on_state: Callable[[bool, str | None], None] | None = None
+
+    def _state(self, on: bool, mode: str | None) -> None:
+        if self.on_state is not None:
+            try:
+                self.on_state(on, mode)
+            except Exception:  # noqa: BLE001 - a map link problem must never break listening
+                pass
 
     def type(self, text: str) -> bool:
         """A typed answer (from the console). Returns False if nobody is listening right now."""
@@ -107,6 +117,7 @@ class Listener:
         time.sleep(self.settle_s)  # let the speaker's last syllable fade before using the mic
         self.mode = mode
         self.listening.set()
+        self._state(True, mode)
         rec = None
         audio = self.mic.audio if self.mic is not None else queue.Queue()
         try:
@@ -135,6 +146,7 @@ class Listener:
         finally:
             self.listening.clear()
             self.mode = None
+            self._state(False, None)
             if self.mic is not None:
                 self.mic.capturing.clear()
 

@@ -3,7 +3,9 @@
     out  event      every Publish from the state machine (+ sender, ISO time), and a heartbeat
                     (mode, eye color) every few seconds so a map opened late catches up
     out  receivers  each neighbor's status (Waves)
-    in   cmd        trigger -> ManualTrigger, reset -> Reset, receiver_reply -> ReceiverReply
+    in   cmd        trigger -> ManualTrigger, reset -> Reset, receiver_reply -> ReceiverReply,
+                    heard -> a spoken answer from the laptop mic (apps.remote_mic), text only
+    out  event      listening on/off, so the laptop mic transcribes only while CareBot listens
 
 Only JSON with ids, statuses, times and verbatim quotes. Never video, never face data.
 """
@@ -27,6 +29,7 @@ class RobotLink:
         self.transport, self.runtime, self.unit, self.waves = transport, runtime, unit, waves
         self.heartbeat_s, self.clock = heartbeat_s, clock
         self._last_beat = 0.0
+        self.on_heard = None  # Listener.type: a transcript from the laptop mic, taken as the spoken answer
         runtime.publish = self.publish_event
         runtime.tickers.append(self.tick)
         if waves is not None:
@@ -47,6 +50,11 @@ class RobotLink:
         self.transport.publish("event", {"type": "dispatch", "sender": self.unit, "incident_id": inc.id if inc else None,
                                          "target": target, "kind": kind, "channel": channel, "status": status,
                                          "simulated": simulated, "ts": iso(self.clock())})
+
+    def listening(self, on: bool, mode: str | None) -> None:
+        """CareBot started or stopped listening for an answer (Listener.on_state)."""
+        self.transport.publish("event", {"type": "listening", "sender": self.unit, "on": on, "mode": mode,
+                                         "ts": iso(self.clock())})
 
     def heartbeat(self) -> dict:
         s = self.runtime.state
@@ -74,6 +82,10 @@ class RobotLink:
         elif kind == "reset":
             print("  <- map: Reset", flush=True)
             self.runtime.post(st.Reset(now))
+        elif kind == "heard" and self.on_heard is not None:
+            text = " ".join(str(msg.get("text", "")).split())[:300]
+            if text and self.on_heard(text):
+                print(f'  <- laptop mic: "{text}"', flush=True)
         elif kind == "receiver_reply" and self.waves is not None and msg.get("reply") in ("yes", "no"):
             r = self.waves.by_id(str(msg.get("id")))
             if r is not None:

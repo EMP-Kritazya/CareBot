@@ -25,7 +25,8 @@ voice:
   rate_wpm: 175
   mic: true                 # Vosk on the default microphone; typed answers always work too
   vosk_model: models/vosk-model-small-en-us-0.15
-  input_device: null        # null = system default mic
+  input_device: null        # null = the default mic: the Logitech webcam's own mic (no INMP441; see
+                            # setup/wireplumber-carebot.conf). Or a name, e.g. "Brio". On stage: apps.remote_mic
 
 ai:                         # Claude in the middle: phrasing + understanding + 911 answers. Never decides actions.
   enabled: true             # needs ANTHROPIC_API_KEY in .env; without it CareBot uses templates + keywords

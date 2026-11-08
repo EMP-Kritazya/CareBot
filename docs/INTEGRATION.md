@@ -156,19 +156,29 @@ stop. Commit the calibrated numbers in `config/hardware_pi.yaml`.
 
 ## 7. Speaker and microphone
 
-**Speaker (JBL over Bluetooth):**
+**Packages (once):** `sudo apt install -y espeak-ng libportaudio2 pipewire-alsa` (the voice, mic input,
+and the app's default mic through PipeWire, resampled to 16 kHz for Vosk).
+
+**Speaker (JBL over Bluetooth) and mic (the Logitech webcam's own mic; there is no INMP441):**
 ```bash
 bluetoothctl            # then: scan on / pair <MAC> / trust <MAC> / connect <MAC> / quit
-wpctl status            # find the JBL sink id;  wpctl set-default <id>
+mkdir -p ~/.config/wireplumber/wireplumber.conf.d
+cp setup/wireplumber-carebot.conf ~/.config/wireplumber/wireplumber.conf.d/50-carebot.conf
+rm -f ~/.local/state/wireplumber/default-nodes && systemctl --user restart wireplumber
+wpctl status            # * on the JBL under Sinks, * on "Brio 101" under Sources
 espeak-ng "CareBot speaker test"
 ```
-**Mic:** `arecord -l` should list the INMP441, or the Logitech's own mic (a "C920"-style card) until it arrives.
-```bash
-.venv/bin/python -m apps.watcher --config config/pi.yaml --list-audio
-```
-Set `voice.input_device` / `voice.output_device` in `config/pi.yaml` if the defaults are wrong.
+The watcher prints `Speaking through:` / `Listening on:` at start-up and warns if the speaker isn't the JBL.
 
-**Check:** the JBL speaks the test line, and `--list-audio` shows the mic.
+**On stage (the webcam mic is far from the speaker):** run the laptop's mic as the robot's ears. It sends
+text only, and only while CareBot is listening (so the JBL's own voice is never an answer):
+```bash
+python -m apps.remote_mic --mqtt carebot.local        # (laptop)
+```
+**Backup, always:** type the answer in the watcher's terminal while CareBot listens.
+
+**Check:** the JBL speaks the test line; the watcher shows `Listening on: Brio 101 ...`; saying "I'm OK"
+during a check-in closes it.
 **If it fails:** the JBL disconnects when idle, so turn off its auto-off and add the reconnect unit from `setup/`.
 
 ## 8. Sandy's face (on the robot's camera)
