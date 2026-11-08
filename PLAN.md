@@ -32,7 +32,7 @@ MakeCU 24-hour robotics hackathon, Healthcare track. Judged on a 3-minute Devpos
 
 ## The problem
 
-**Tom Notti, 92, Cloverdale, California.** Tom was widowed in 2015 and lived alone in a retirement community. He used a walker and an electric scooter, and he still drove. In February 2023 he fell in his living room and couldn't get up. His phone was on a table, out of reach; he tried to get to it to call a neighbor, and its battery died. He lay on the floor for about five days. His pill box showed his last dose five days earlier. His next-door neighbor kept a key to his house "just because he lives alone, and there's no one taking care of him." A Meals on Wheels driver heard that he'd gone quiet, walked around to the back of his house and saw him through the rear window. He died in hospital a week later.
+**Tom Notti, 91, Cloverdale, California.** Tom was widowed in 2015 and lived alone in a retirement community. He used a walker and an electric scooter, and he still drove. In February 2023 he fell in his living room and couldn't get up. His phone was on a table, out of reach; he tried to get to it to call a neighbor, and its battery died. He lay on the floor for about five days. His pill box showed his last dose five days earlier. His next-door neighbor kept a key to his house "just because he lives alone, and there's no one taking care of him." A Meals on Wheels driver heard that he'd gone quiet, walked around to the back of his house and saw him through the rear window. He died in hospital a week later.
 
 > "It's just sad, because the whole thing was preventable, and he was just a really nice man." The Meals on Wheels driver who found him
 >
@@ -40,14 +40,15 @@ MakeCU 24-hour robotics hackathon, Healthcare track. Judged on a 3-minute Devpos
 
 We tell Tom's story factually and with respect, and we cite it. We never re-enact it.
 
-| Fact | Source |
-| --- | --- |
-| More than 14 million adults 65+, about 1 in 4, report a fall each year | CDC |
-| More than 41,000 adults 65+ died from falls in 2023 | CDC data, reported by ACP Internist |
-| Of fallers over 90, 80% couldn't get up after at least one fall, and 30% lay on the floor for an hour or more | Fleming & Brayne, BMJ 2008 |
-| Call alarms were available but mostly unused in the falls that led to long lies | Fleming & Brayne, BMJ 2008 |
+| Fact                                                                                                          | Source                              |
+| ------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| More than 14 million adults 65+, about 1 in 4, report a fall each year                                        | CDC                                 |
+| More than 41,000 adults 65+ died from falls in 2023                                                           | CDC data, reported by ACP Internist |
+| Of fallers over 90, 80% couldn't get up after at least one fall, and 30% lay on the floor for an hour or more | Fleming & Brayne, BMJ 2008          |
+| Call alarms were available but mostly unused in the falls that led to long lies                               | Fleming & Brayne, BMJ 2008          |
 
 **Why today's tools fail.**
+
 - **Pendants** must be worn and pressed. Someone who is unconscious, confused or hurt can't press one.
 - **Pull cords** can't be reached from the floor. A UK coroner raised this after Joan Murphy, 90, fell in a care-home bathroom and couldn't reach the cord.
 - **Smartwatches** need charging and wearing every day.
@@ -73,6 +74,7 @@ Sandy, 81, lives alone in apartment 4A on West 115th Street. He gets up in the n
 6. "I'm his neighbor, we're taking him to the hospital now." 911 and Suyog get a text with that quote. The map shows "with him," then "hospital," and the incident closes.
 
 **Acceptance:**
+
 - First ask at most 5 s after the 10 s hold.
 - Every outbound message sent within 5 s of the last ask.
 - A reply reaches the map within 3 s.
@@ -110,12 +112,14 @@ The grandson trips. He isn't the resident, so CareBot doesn't use a name: "Is ev
 The camera reports what it saw, and only Sandy's own spoken "I'm OK" closes anything. Standing up alone is never a cancel: someone can get up and still be hurt, and the person standing could be someone else.
 
 **During the check-in** (he falls by the kitchen counter, then gets up while CareBot is asking):
+
 1. CareBot notices and rewords the question: "Sandy, I see you got up. Are you OK? Say 'I'm OK' or press my button."
 2. "I'm OK" closes it, and nothing is sent.
 3. If he walks off without answering (to the bathroom, say), CareBot doesn't sound the full alarm. **Only Suyog is texted**: "Sandy fell at 10:20 AM and got back up at 10:20 AM (seen by the camera), but didn't answer CareBot's check-in. Nobody else has been contacted. You may want to give Sandy a call." No 911, no neighbors, no beeping in an empty room. Once the text is sent, CareBot says: "I didn't hear an answer, so I've let Suyog know about the fall."
 4. "Help" still gets the full alert.
 
 **After the alert went out** (Krit is already on his way):
+
 1. CareBot tells Sandy: "Sandy, I see you're up. If you're OK, press my button and say 'I'm OK'. Krit is still on the way." (If nobody has said yes yet: "I've already called for help.")
 2. Suyog and 911 get the fact, not a conclusion: "The camera saw Sandy get back up. No spoken 'I'm OK' from Sandy yet. Help has not been called off."
 3. The robot keeps beeping until Sandy presses the button and says "I'm OK".
@@ -175,20 +179,21 @@ Code enforces these tables; the prompt alone doesn't.
 
 ### To Sandy, in the room
 
-| State | May say | Never says |
-| --- | --- | --- |
-| `CHECK_IN` | "Sandy, I saw you fall" (or "you haven't moved") "Are you OK? Say 'I'm OK' or 'help'." No name if the person isn't the resident. | Any diagnosis |
-| `ALERTED`, nobody has said yes | "I'm getting help. I've contacted your neighbors, Suyog and 911." Said only after the sends succeed. | "Help is on the way" |
-| A neighbor said YES | "Krit from 115th Street is on the way." | An ETA |
-| Camera saw him get up, during the check-in | "Sandy, I see you got up. Are you OK? Say 'I'm OK' or press my button." | "Glad you're OK" before he says so |
-| He got up, then didn't answer | "I didn't hear an answer, so I've let Suyog know about the fall." Said only after Suyog's text is sent. | "Help is coming" (only Suyog was told) |
-| Camera saw him get up, after the alert | "Sandy, I see you're up. If you're OK, press my button and say 'I'm OK'." plus "Krit is still on the way." or "I've already called for help." | "You can cancel," "Help has been called off" |
-| 911 unanswered | "I couldn't reach 911 yet. I'm trying again." | Nothing at all |
+| State                                         | May say                                                                                                                                                                                                                                                                                             | Never says                                          |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `CHECK_IN`                                    | "Sandy, I saw you fall" (or "you haven't moved") "Are you OK? Say 'I'm OK' or 'help'." No name if the person isn't the resident.                                                                                                                                                                    | Any diagnosis                                       |
+| `ALERTED`, nobody has said yes                | "I'm getting help. I've contacted your neighbors, Suyog and 911." Said only after the sends succeed.                                                                                                                                                                                                | "Help is on the way"                                |
+| A neighbor said YES                           | "Krit from 115th Street is on the way."                                                                                                                                                                                                                                                             | An ETA                                              |
+| Camera saw him get up, during the check-in    | "Sandy, I see you got up. Are you OK? Say 'I'm OK' or press my button."                                                                                                                                                                                                                             | "Glad you're OK" before he says so                  |
+| He got up, then didn't answer                 | "I didn't hear an answer, so I've let Suyog know about the fall." Said only after Suyog's text is sent.                                                                                                                                                                                             | "Help is coming" (only Suyog was told)              |
+| Camera saw him get up, after the alert        | "Sandy, I see you're up. If you're OK, press my button and say 'I'm OK'." plus "Krit is still on the way." or "I've already called for help."                                                                                                                                                       | "You can cancel," "Help has been called off"        |
+| 911 unanswered                                | "I couldn't reach 911 yet. I'm trying again."                                                                                                                                                                                                                                                       | Nothing at all                                      |
 | Waiting for help (comfort window, every 30 s) | "Sandy, I'm here with you." plus only what's true ("Krit is on the way." after a YES, "I've called for help." after the sends) and "You can talk to me." Whatever he says is passed to Suyog and 911 word for word, and he hears a kind reply that may acknowledge it ("I'm sorry your hip hurts"). | Advice ("try not to move"), promises, false comfort |
 
 ### To the 911 dispatcher
 
 **May say** (only from the fact sheet):
+
 - address and unit
 - an access note, such as "neighbor Krit has a key"
 - the resident's name and age, and that he lives alone (from config)
@@ -214,39 +219,39 @@ Code enforces these tables; the prompt alone doesn't.
 
 ### Hardware (one robot)
 
-| Part | Detail |
-| --- | --- |
-| Brain | Raspberry Pi 5 (4GB). The Pi 4 is a spare. |
-| Camera | Logitech USB webcam on the pan-tilt head (OpenCV / V4L2, MJPG 720p). Video never touches a network. There is no AI Camera. Laptop testing uses the laptop's webcam. |
+| Part     | Detail                                                                                                                                                                                                                                                                                                                                      |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Brain    | Raspberry Pi 5 (4GB). The Pi 4 is a spare.                                                                                                                                                                                                                                                                                                  |
+| Camera   | Logitech USB webcam on the pan-tilt head (OpenCV / V4L2, MJPG 720p). Video never touches a network. There is no AI Camera. Laptop testing uses the laptop's webcam.                                                                                                                                                                         |
 | Pan-tilt | Two Hitec D625MW servos (own 6 V battery, shared ground): pan on GPIO 12, tilt on GPIO 13. They use the Pi 5's hardware PWM (`dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4`, with `rpi-hardware-pwm`; check `/sys/class/pwm` for the chip number). They run off a separate 5 V supply that shares a common ground. There's no PCA9685. |
-| LED eyes | A NeoPixel arc on SPI MOSI (GPIO 10), driven by `adafruit-circuitpython-neopixel-spi`, through a 74AHCT125 level shifter. The rpi_ws281x library doesn't run on the Pi 5. Blue = watching, amber = checking in, red = alerted, green = a person is on the way or with him. |
-| Buzzer | GPIO 17 |
-| Button | GPIO 27, through gpiozero with debounce |
-| Speaker | JBL over Bluetooth, reconnected at boot by a systemd unit. Fallback: AUX through a USB sound card. |
-| Mic | The Logitech webcam's built-in mic (no INMP441). On stage: the laptop mic via `apps.remote_mic` (text only). |
-| Lighting | A night-light in the scene, because the webcam is nearly blind in the dark |
-| Network | Mosquitto on the robot, on our own travel router. The robot needs the internet only for Twilio and Claude. |
+| LED eyes | A NeoPixel arc on SPI MOSI (GPIO 10), driven by `adafruit-circuitpython-neopixel-spi`, through a 74AHCT125 level shifter. The rpi_ws281x library doesn't run on the Pi 5. Blue = watching, amber = checking in, red = alerted, green = a person is on the way or with him.                                                                  |
+| Buzzer   | GPIO 17                                                                                                                                                                                                                                                                                                                                     |
+| Button   | GPIO 27, through gpiozero with debounce                                                                                                                                                                                                                                                                                                     |
+| Speaker  | JBL over Bluetooth, reconnected at boot by a systemd unit. Fallback: AUX through a USB sound card.                                                                                                                                                                                                                                          |
+| Mic      | The Logitech webcam's built-in mic (no INMP441). On stage: the laptop mic via `apps.remote_mic` (text only).                                                                                                                                                                                                                                |
+| Lighting | A night-light in the scene, because the webcam is nearly blind in the dark                                                                                                                                                                                                                                                                  |
+| Network  | Mosquitto on the robot, on our own travel router. The robot needs the internet only for Twilio and Claude.                                                                                                                                                                                                                                  |
 
 ### Software
 
 Python 3.11. Every hardware part sits behind a small interface with a mock, chosen in `config/*.yaml`, and everything runs on a laptop with the mocks.
 
-| Module | Real | Mock |
-| --- | --- | --- |
-| Pose (`vision/pose.py`) | YOLO11n-pose with built-in ByteTrack (`track(persist=True)`), exported to NCNN on the Pi. Fallback: MediaPipe, single person. | Video file |
-| Face lock (`vision/identity.py`) | OpenCV YuNet and SFace | A fixed resident track ID |
-| Detectors (`vision/detectors.py`) | Fall and stillness for each track, with thresholds in YAML | Same code |
-| Tracker (`hw/tracker.py`) | Servos follow the resident's track, with a deadband, and freeze while a fall is being confirmed | Prints the angles |
-| Eyes, buzzer, button (`hw/`) | NeoPixel over SPI, GPIO | A red terminal banner; Enter presses the button |
-| Voice (`voice/`) | Piper out (espeak-ng fallback); Vosk in, in keyword mode for check-ins and full transcript for "who's there?" | Keyboard |
-| Fact sheet (`escalate/facts.py`) | Pure function: incident in, facts out | Same code |
-| Receivers (`escalate/receivers.py`) | Ranking and texting in waves | Same code |
-| Notifier (`escalate/notifier.py`) | Twilio SMS and calls | Console |
+| Module                                              | Real                                                                                                                                                                                                                                               | Mock                                                                             |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Pose (`vision/pose.py`)                             | YOLO11n-pose with built-in ByteTrack (`track(persist=True)`), exported to NCNN on the Pi. Fallback: MediaPipe, single person.                                                                                                                      | Video file                                                                       |
+| Face lock (`vision/identity.py`)                    | OpenCV YuNet and SFace                                                                                                                                                                                                                             | A fixed resident track ID                                                        |
+| Detectors (`vision/detectors.py`)                   | Fall and stillness for each track, with thresholds in YAML                                                                                                                                                                                         | Same code                                                                        |
+| Tracker (`hw/tracker.py`)                           | Servos follow the resident's track, with a deadband, and freeze while a fall is being confirmed                                                                                                                                                    | Prints the angles                                                                |
+| Eyes, buzzer, button (`hw/`)                        | NeoPixel over SPI, GPIO                                                                                                                                                                                                                            | A red terminal banner; Enter presses the button                                  |
+| Voice (`voice/`)                                    | Piper out (espeak-ng fallback); Vosk in, in keyword mode for check-ins and full transcript for "who's there?"                                                                                                                                      | Keyboard                                                                         |
+| Fact sheet (`escalate/facts.py`)                    | Pure function: incident in, facts out                                                                                                                                                                                                              | Same code                                                                        |
+| Receivers (`escalate/receivers.py`)                 | Ranking and texting in waves                                                                                                                                                                                                                       | Same code                                                                        |
+| Notifier (`escalate/notifier.py`)                   | Twilio SMS and calls                                                                                                                                                                                                                               | Console                                                                          |
 | 911 agent (`ai/dispatcher.py`, `escalate/facts.py`) | Templated briefing from the fact sheet, then Q&A with Claude answering only from the facts, with a code filter (no condition claims outside someone's exact words, no ETAs, no new numbers). Phone line via Twilio `<Gather input="speech">` later | Offline keyword answers from the facts; `d <question>` in the watcher's terminal |
-| Phrasing (`ai/phrasing.py`) | Claude rewrites each line to sound natural; `check_line` rejects dropped names or cues, new promises, ETAs, medical words, false comfort | The template, word for word |
-| Understanding (`ai/understand.py`) | Claude reads whole answers ("I think so, just dizzy"); keyword "help" and any symptom always win | Keyword rules |
-| Transport (`transport/`) | MQTT | In-memory |
-| Dashboard (`dashboard/`) | FastAPI, MQTT bridge, simulated receivers, Leaflet page | Same, against the in-memory transport |
+| Phrasing (`ai/phrasing.py`)                         | Claude rewrites each line to sound natural; `check_line` rejects dropped names or cues, new promises, ETAs, medical words, false comfort                                                                                                           | The template, word for word                                                      |
+| Understanding (`ai/understand.py`)                  | Claude reads whole answers ("I think so, just dizzy"); keyword "help" and any symptom always win                                                                                                                                                   | Keyword rules                                                                    |
+| Transport (`transport/`)                            | MQTT                                                                                                                                                                                                                                               | In-memory                                                                        |
+| Dashboard (`dashboard/`)                            | FastAPI, MQTT bridge, simulated receivers, Leaflet page                                                                                                                                                                                            | Same, against the in-memory transport                                            |
 
 The webhook is exposed through cloudflared or ngrok.
 
@@ -285,24 +290,23 @@ Thresholds live in YAML and are never hard-coded.
 - **Fall.** The hip midpoint drops at least 0.5 torso lengths within 1.2 s, and the torso tips at least 45 degrees from upright while dropping. Measuring in body sizes keeps it independent of distance; a fall onto a sofa counts, lying down slowly doesn't. Then either he stays down for `fall_hold_s` (10 s), or he leaves the frame and doesn't reappear upright within `fall_out_of_view_s` (10 s). The servos freeze once a possible fall is detected, so the camera doesn't move while the drop is measured.
 - **Stillness.** Only the resident, only while he's in view, never while lying (that's sleep). The timer adapts to what the camera sees and to what just happened:
 
-  | Sandy is | Real timer | Demo timer (`--demo`) |
-  | --- | --- | --- |
-  | Sitting calmly (TV, reading) | 20 min | 10 s |
-  | Standing still | 3 min | 7 s |
-  | Slumped (head hanging between the shoulders, or leaning over in the chair) | 1 min | 5 s |
-
+  | Sandy is                                                                   | Real timer | Demo timer (`--demo`) |
+  | -------------------------------------------------------------------------- | ---------- | --------------------- |
+  | Sitting calmly (TV, reading)                                               | 20 min     | 10 s                  |
+  | Standing still                                                             | 3 min      | 7 s                   |
+  | Slumped (head hanging between the shoulders, or leaning over in the chair) | 1 min      | 5 s                   |
   - **After any incident closes**, the timer restarts and stillness checks pause for 10 min (5 s in demo). He was just checked on. Falls are still detected during the pause.
   - **After "I'm OK" to a stillness check**, the next one waits twice as long (up to 4x), so a calm sitter isn't nagged. Getting up and moving around resets it.
-  - **Slumped vs asleep:** a low head *between* the shoulders is a slump; a low head *beside* the shoulders (lying in bed) is lying, so sleep never triggers the short timer.
+  - **Slumped vs asleep:** a low head _between_ the shoulders is a slump; a low head _beside_ the shoulders (lying in bed) is lying, so sleep never triggers the short timer.
   - All timers are in `config/detectors.yaml`.
 
 ### Messages (MQTT)
 
-| Topic | Content |
-| --- | --- |
-| `carebot/robot-4A/event` | `alert`, `status`, `update`, `close`, each with `incident_id` and `ts` |
-| `carebot/robot-4A/cmd` | `trigger`, `reset` (from the map) |
-| `carebot/robot-4A/receivers` | Each neighbor's status |
+| Topic                        | Content                                                                |
+| ---------------------------- | ---------------------------------------------------------------------- |
+| `carebot/robot-4A/event`     | `alert`, `status`, `update`, `close`, each with `incident_id` and `ts` |
+| `carebot/robot-4A/cmd`       | `trigger`, `reset` (from the map)                                      |
+| `carebot/robot-4A/receivers` | Each neighbor's status                                                 |
 
 ```json
 {"type": "alert", "sender": "robot-4A", "incident_id": "...", "event": "fall", "who": "resident", "ts": "..."}
@@ -315,13 +319,14 @@ No message ever carries video or face data.
 
 There are three of us, and each person owns a domain. That leaves almost no integration work between people.
 
-| Person | Owns | Hands off |
-| --- | --- | --- |
-| Designer | 3D design: the robot body and pan-tilt head (webcam, 2 Hitec D625MW servos, LED arc, button, speaker cradle); the demo set; the video edit; the Devpost art | Mounting dimensions by hour 4 |
-| Hardware | Wiring and power; the Pi drivers (`carebot/hw/*_pi.py`: pan-tilt, eyes, buzzer, button) built against `carebot/hw/base.py`; Pi setup (overlays, JBL pairing, INMP441, systemd); `apps/hwcheck.py`; the router. Contract: [docs/HARDWARE.md](docs/HARDWARE.md) | All drivers passing `hwcheck` by hour 10 |
-| Software (Kritazya) | All code, configs, tests, evals, the map, Twilio and Claude | Mock mode always runs on a laptop |
+| Person              | Owns                                                                                                                                                                                                                                                          | Hands off                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Designer            | 3D design: the robot body and pan-tilt head (webcam, 2 Hitec D625MW servos, LED arc, button, speaker cradle); the demo set; the video edit; the Devpost art                                                                                                   | Mounting dimensions by hour 4            |
+| Hardware            | Wiring and power; the Pi drivers (`carebot/hw/*_pi.py`: pan-tilt, eyes, buzzer, button) built against `carebot/hw/base.py`; Pi setup (overlays, JBL pairing, INMP441, systemd); `apps/hwcheck.py`; the router. Contract: [docs/HARDWARE.md](docs/HARDWARE.md) | All drivers passing `hwcheck` by hour 10 |
+| Software (Kritazya) | All code, configs, tests, evals, the map, Twilio and Claude                                                                                                                                                                                                   | Mock mode always runs on a laptop        |
 
 **Rules.**
+
 1. Commit to `main` in small steps. Pull before every push.
 2. Tag `v-h12` at hour 12 and `v-demo` before filming.
 3. Secrets never go in git. They live in `.env`, and `.env.example` stays current.
@@ -331,19 +336,19 @@ There are three of us, and each person owns a domain. That leaves almost no inte
 
 ## Build order (software, 24 hours)
 
-| Hours | Work | Done when |
-| --- | --- | --- |
-| 0–2 | Skeleton, state machine and tests, mocks, `simulate` with every story | pytest is green |
-| 2–6 | YOLO pose and ByteTrack on the laptop, detectors, `score` on URFD | First recall and false-positive numbers |
-| 6–8 | Face enrollment and lock, button attribution (mock button) | Story 2 works on the laptop |
-| 8–10 | Pi 5: NCNN export, fps check, MJPEG on port 8000, follow logic and freeze plugged into the hardware teammate's drivers | The head follows Sandy |
-| 10–12 | Piper to the JBL, Vosk keywords and transcript | Story 1 reaches ALERTED with mocks. **Tag `v-h12`** |
-| 12–14 | Map: Leaflet, MQTT bridge, receivers, `build_routes`, trigger button | The map shows the alert and routes |
-| 14–16 | Twilio texts in waves, family call, SMS replies, the 911 template briefing, the tunnel | Real phones ring |
-| 16–18 | Claude Q&A with the filter, `redteam911`, intent sorting and quoted updates | Zero unsupported claims |
-| 18–20 | Integration on the set, eval numbers recorded, all 5 stories rehearsed | All pass live |
-| 20–23 | Filming (the designer edits) | The cut is ready |
-| 23–24 | Devpost write-up, README credits. **Tag `v-demo`** | Submitted |
+| Hours | Work                                                                                                                   | Done when                                           |
+| ----- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| 0–2   | Skeleton, state machine and tests, mocks, `simulate` with every story                                                  | pytest is green                                     |
+| 2–6   | YOLO pose and ByteTrack on the laptop, detectors, `score` on URFD                                                      | First recall and false-positive numbers             |
+| 6–8   | Face enrollment and lock, button attribution (mock button)                                                             | Story 2 works on the laptop                         |
+| 8–10  | Pi 5: NCNN export, fps check, MJPEG on port 8000, follow logic and freeze plugged into the hardware teammate's drivers | The head follows Sandy                              |
+| 10–12 | Piper to the JBL, Vosk keywords and transcript                                                                         | Story 1 reaches ALERTED with mocks. **Tag `v-h12`** |
+| 12–14 | Map: Leaflet, MQTT bridge, receivers, `build_routes`, trigger button                                                   | The map shows the alert and routes                  |
+| 14–16 | Twilio texts in waves, family call, SMS replies, the 911 template briefing, the tunnel                                 | Real phones ring                                    |
+| 16–18 | Claude Q&A with the filter, `redteam911`, intent sorting and quoted updates                                            | Zero unsupported claims                             |
+| 18–20 | Integration on the set, eval numbers recorded, all 5 stories rehearsed                                                 | All pass live                                       |
+| 20–23 | Filming (the designer edits)                                                                                           | The cut is ready                                    |
+| 23–24 | Devpost write-up, README credits. **Tag `v-demo`**                                                                     | Submitted                                           |
 
 ## Evaluation
 
@@ -365,6 +370,7 @@ There are three of us, and each person owns a domain. That leaves almost no inte
 ### Where we don't help
 
 We say these on screen:
+
 - **Falls out of view.** In another room or the bathroom, nothing alerts. One robot watches one room.
 - **A dark room without a night-light.**
 - **Someone who says "I'm OK" when they aren't.**
@@ -372,36 +378,37 @@ We say these on screen:
 
 ## Risks and fallbacks
 
-| Risk | Fallback |
-| --- | --- |
-| YOLO is too slow on the Pi 5 | Image size 320, or MediaPipe for one person |
-| Bluetooth drops | AUX through a USB sound card |
+| Risk                                                | Fallback                                                |
+| --------------------------------------------------- | ------------------------------------------------------- |
+| YOLO is too slow on the Pi 5                        | Image size 320, or MediaPipe for one person             |
+| Bluetooth drops                                     | AUX through a USB sound card                            |
 | The webcam mic is too far from the speaker on stage | `apps.remote_mic` on the laptop; typed answers over SSH |
-| The servos jitter | Hardware PWM, a deadband, freezing during the check-in |
-| Twilio trial limits | Verify every number early |
-| The venue Wi-Fi | Our own router |
-| The live fall misfires on camera | The map's Trigger alert button runs the same pipeline |
-| The routing server is down | The precomputed `routes.json`, then straight lines |
+| The servos jitter                                   | Hardware PWM, a deadband, freezing during the check-in  |
+| Twilio trial limits                                 | Verify every number early                               |
+| The venue Wi-Fi                                     | Our own router                                          |
+| The live fall misfires on camera                    | The map's Trigger alert button runs the same pipeline   |
+| The routing server is down                          | The precomputed `routes.json`, then straight lines      |
 
 ## Demo (3-minute Devpost video)
 
 **Set.** Run with `--demo`: stillness 10 s / 7 s / 5 s instead of 20 min / 3 min / 1 min, a 5 s cooldown, a 5 s fall hold and 5 s to answer each ask (an alert about 15 s after a fall, instead of about 40 s). The HUD shows "DEMO TIMERS", and the video says so.
+
 - A bedroom corner with an armchair and a crash mat. A teammate plays Sandy and really falls onto the mat; detection is live.
 - The robot on a shelf.
 - The laptop map on screen.
 - Suyog's phone, a neighbor's phone and the "911" phone, all in view.
 - A screen recording of the live view: skeletons, the "Sandy" and "visitor" labels, and the state.
 
-| Time | Beat |
-| --- | --- |
-| 0:00 | **Tom Notti** (20 s, cited). "Nothing told anyone he had fallen." |
-| 0:20 | **Meet CareBot.** The head turns to follow Sandy, eyes blue. "Video never leaves this robot." The map shows his neighbors. |
-| 0:35 | **Story 2.** The grandson naps and nothing happens. Sandy sits down hard, presses the button and says "I'm OK." Nothing is sent. "It doesn't cry wolf." |
-| 1:00 | **Story 1.** A fall on the mat, two asks, silence. Beeping. Three neighbors light up on the map, Suyog's phone rings, the 911 phone rings. The dispatcher asks "Is he breathing?" and hears: "I don't know. The device can't tell that. He hasn't responded since 2:07." |
+| Time | Beat                                                                                                                                                                                                                                                                                              |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0:00 | **Tom Notti** (20 s, cited). "Nothing told anyone he had fallen."                                                                                                                                                                                                                                 |
+| 0:20 | **Meet CareBot.** The head turns to follow Sandy, eyes blue. "Video never leaves this robot." The map shows his neighbors.                                                                                                                                                                        |
+| 0:35 | **Story 2.** The grandson naps and nothing happens. Sandy sits down hard, presses the button and says "I'm OK." Nothing is sent. "It doesn't cry wolf."                                                                                                                                           |
+| 1:00 | **Story 1.** A fall on the mat, two asks, silence. Beeping. Three neighbors light up on the map, Suyog's phone rings, the 911 phone rings. The dispatcher asks "Is he breathing?" and hears: "I don't know. The device can't tell that. He hasn't responded since 2:07."                          |
 | 1:40 | **The change moment.** A neighbor replies YES and their route draws on the map. Sandy hears that Krit is coming. Krit presses the button. "Who are you, and what's happening?" "I'm his neighbor, we're taking him to the hospital." The quote lands on the 911 phone, Suyog's phone and the map. |
-| 2:15 | **Stories 3 and 4**, side by side. A slump, then "help." A visitor falls, then "Is everyone OK?" |
-| 2:30 | **Under the hood and proof.** Pose runs on the robot, the face lock, the honesty filter. Recall and false-alarm numbers, latency, red-team at zero. |
-| 2:50 | **Close.** "Tom's phone was on the table, just out of reach. His neighbor had a key. CareBot tells them in under a minute." |
+| 2:15 | **Stories 3 and 4**, side by side. A slump, then "help." A visitor falls, then "Is everyone OK?"                                                                                                                                                                                                  |
+| 2:30 | **Under the hood and proof.** Pose runs on the robot, the face lock, the honesty filter. Recall and false-alarm numbers, latency, red-team at zero.                                                                                                                                               |
+| 2:50 | **Close.** "Tom's phone was on the table, just out of reach. His neighbor had a key. CareBot tells them in under a minute."                                                                                                                                                                       |
 
 ### Planned: the demo as a real-time simulation on the map
 
@@ -409,20 +416,20 @@ A simulation that runs on the **real** timers (20 min calm, 3 min standing, 1 mi
 
 ### Q&A prep
 
-| Question | Answer |
-| --- | --- |
-| "Won't it bother him while he watches TV?" | No. Sitting calmly only counts after 20 minutes of complete stillness. If he answers "I'm OK", the next check waits twice as long, and there's a 10-minute pause after every check-in. Only a slump (head hanging, leaning over) gets the 1-minute timer. |
-| "Why not a pendant?" | A pendant has to be worn and pressed. In the BMJ study, alarms were mostly unused in the falls that led to long lies. CareBot needs nothing from Sandy. |
-| "Isn't a camera invasive?" | Video and faces never leave the robot. Only events go over the network, and the live view can show the skeleton alone. |
-| "Does it really call 911?" | In the demo it calls a teammate standing in for 911. In production this would be an NG911 data integration like RapidSOS. Apple Watch fall detection already calls 911 on its own. |
-| "What if he gets back up on his own?" | The camera's view is passed on as a fact ("seen getting up"), and he's asked to confirm. Standing up alone never cancels: people get up hurt, and the person standing could be someone else. If he got up and then didn't answer, only his son is texted, not 911. |
-| "What if he says 'I'm OK' and isn't?" | We respect his answer. He stays in view, so another fall or stillness starts a new check-in. We list this under where we don't help. |
-| "What if a stranger presses the button?" | We quote them; we don't vouch for them. Every update says "the device can't confirm who they are." |
-| "What does it tell 911 that it can't know?" | Nothing. The red-team asks "Is he breathing?" in every state, and the answer is always "I don't know." |
-| "What about the neighbors' privacy?" | Neighbors opt in as receivers. They get Sandy's block and a short message, never video. |
-| "What if he's in another room?" | Nothing happens. One robot watches one room, and we say so. |
-| "What if the internet goes down?" | The robot still beeps and the map still shows the alert over the local network. Texts and calls need the internet. |
-| "What about a dark room?" | We need a night-light. A production version would use an IR camera. |
+| Question                                    | Answer                                                                                                                                                                                                                                                             |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| "Won't it bother him while he watches TV?"  | No. Sitting calmly only counts after 20 minutes of complete stillness. If he answers "I'm OK", the next check waits twice as long, and there's a 10-minute pause after every check-in. Only a slump (head hanging, leaning over) gets the 1-minute timer.          |
+| "Why not a pendant?"                        | A pendant has to be worn and pressed. In the BMJ study, alarms were mostly unused in the falls that led to long lies. CareBot needs nothing from Sandy.                                                                                                            |
+| "Isn't a camera invasive?"                  | Video and faces never leave the robot. Only events go over the network, and the live view can show the skeleton alone.                                                                                                                                             |
+| "Does it really call 911?"                  | In the demo it calls a teammate standing in for 911. In production this would be an NG911 data integration like RapidSOS. Apple Watch fall detection already calls 911 on its own.                                                                                 |
+| "What if he gets back up on his own?"       | The camera's view is passed on as a fact ("seen getting up"), and he's asked to confirm. Standing up alone never cancels: people get up hurt, and the person standing could be someone else. If he got up and then didn't answer, only his son is texted, not 911. |
+| "What if he says 'I'm OK' and isn't?"       | We respect his answer. He stays in view, so another fall or stillness starts a new check-in. We list this under where we don't help.                                                                                                                               |
+| "What if a stranger presses the button?"    | We quote them; we don't vouch for them. Every update says "the device can't confirm who they are."                                                                                                                                                                 |
+| "What does it tell 911 that it can't know?" | Nothing. The red-team asks "Is he breathing?" in every state, and the answer is always "I don't know."                                                                                                                                                             |
+| "What about the neighbors' privacy?"        | Neighbors opt in as receivers. They get Sandy's block and a short message, never video.                                                                                                                                                                            |
+| "What if he's in another room?"             | Nothing happens. One robot watches one room, and we say so.                                                                                                                                                                                                        |
+| "What if the internet goes down?"           | The robot still beeps and the map still shows the alert over the local network. Texts and calls need the internet.                                                                                                                                                 |
+| "What about a dark room?"                   | We need a night-light. A production version would use an IR camera.                                                                                                                                                                                                |
 
 ## Responsible design
 
