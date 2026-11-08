@@ -20,7 +20,9 @@ from typing import Literal
 
 from carebot.vision.keypoints import Features, Frame, Person, body_view, features, motion
 
-EventKind = Literal["fall_candidate", "fall", "fall_recovered", "stillness"]
+# fall_recovered: got up before the hold ran out (no check-in).
+# got_up: got up AFTER the fall was confirmed (CareBot is already checking in or alerting).
+EventKind = Literal["fall_candidate", "fall", "fall_recovered", "got_up", "stillness"]
 
 
 @dataclass(frozen=True)
@@ -76,15 +78,16 @@ class FallDetector:
         return "resident" if tid == frame.resident_track_id or tr.was_resident else "other"
 
     def _adopt(self, tid: int, feat: Features, frame: Frame, events: list) -> _FallTrack:
-        """A new track id. If someone vanished mid-fall nearby and this person is upright,
-        it's them getting back up (the tracker gave them a new id)."""
+        """A new track id. If someone vanished mid-fall (or after a confirmed fall) nearby and this
+        person is upright, it's them getting back up (the tracker gave them a new id)."""
         tr = _FallTrack()
         self.tracks[tid] = tr
         if self._is_up(feat, None):
             for old_id, old in list(self.tracks.items()):
-                if (old is not tr and old.state == "candidate" and old.vanished_at is not None
+                if (old is not tr and old.state in ("candidate", "confirmed") and old.vanished_at is not None
                         and abs(old.last_hip_x - feat.hip[0]) <= self.f["reappear_radius"]):
-                    events.append(VisionEvent("fall_recovered", old_id, self._who(old_id, old, frame), frame.ts))
+                    kind = "fall_recovered" if old.state == "candidate" else "got_up"
+                    events.append(VisionEvent(kind, old_id, self._who(old_id, old, frame), frame.ts))
                     del self.tracks[old_id]
                     break
         return tr
@@ -108,12 +111,13 @@ class FallDetector:
                 events.append(VisionEvent("fall", tid, who, frame.ts))
             return
         if tr.state == "confirmed":
-            if self._is_up(feat, tr):  # back on their feet: re-arm silently
+            if self._is_up(feat, tr):  # back on their feet after a confirmed fall: say so, re-arm
                 tr.state = "watch"
                 tr.history.clear()
+                events.append(VisionEvent("got_up", tid, who, frame.ts))
             return
-        if frame.camera_moving:
-            tr.history.clear()  # a moving camera fakes hip motion; start the window over
+        if frame.vertical_moving:
+            tr.history.clear()  # tilting fakes hip motion; start the window over (panning is fine)
             tr.pending_drop = None
             return
         tr.history.append((frame.ts, feat.hip[1], feat.torso_deg, feat.torso_len))
@@ -123,7 +127,7 @@ class FallDetector:
         top = top_entry[1]
         drop = feat.hip[1] - top
         # Measured in body sizes (torso lengths at the top of the drop), so the same fall counts
-        # whether Ruth is 2 m or 5 m from the camera.
+        # whether Sandy is 2 m or 5 m from the camera.
         if drop >= self.f["drop_torso"] * top_entry[3]:
             # Walking toward the camera also moves the hips down the frame, but the body gets
             # bigger. A fall doesn't make the torso grow, so approaching is never a fall start.
@@ -161,8 +165,24 @@ class FallDetector:
 
 # ---------------------------------------------------------------- stillness
 
+TIMER_KIND = {"sitting": "sitting", "upper_body": "sitting", "upright": "upright", "slumped": "slumped"}
+KIND_LABEL = {"sitting": "sitting calmly", "upright": "standing", "slumped": "slumped"}
+
+
+def mmss(seconds: float) -> str:
+    seconds = max(0, int(round(seconds)))
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
 class StillnessDetector:
-    """Resident only, in view only, sitting/upright only. Fires once per still spell."""
+    """Resident only, in view only, never lying. Fires once per still spell.
+
+    Adaptive:
+    - the timer depends on what the camera sees: sitting calmly (long), standing (medium), slumped (short);
+    - after an incident closes, `restart(cooldown=True)` pauses stillness checks for a while;
+    - after "I'm OK" to a stillness check, `restart(backoff=True)` makes the next one wait longer,
+      until he's up and moving again.
+    """
 
     def __init__(self, cfg: dict) -> None:
         self.c = cfg
@@ -173,6 +193,26 @@ class StillnessDetector:
         self.fired = False
         self.reason = "starting"           # why the timer is (or isn't) running, for the live view
         self.last_motion: float | None = None
+        self.kind: str | None = None       # sitting | upright | slumped (current timer)
+        self.multiplier = 1.0              # back-off after "I'm OK" to a stillness check
+        self.cooldown_until: float | None = None
+
+    @property
+    def profile(self) -> str:
+        return self.s.get("profile", "real")
+
+    def threshold(self, kind: str) -> float:
+        """Seconds of stillness before a check-in, for this kind of stillness right now."""
+        return self.s["timers"][self.profile][kind] * self.multiplier
+
+    def restart(self, ts: float, cooldown: bool = False, backoff: bool = False) -> None:
+        """An incident just closed (or he just proved he's responsive): start counting from zero.
+        cooldown: no stillness checks for cooldown_s. backoff: the next check waits longer."""
+        self._reset()
+        if cooldown:
+            self.cooldown_until = ts + self.s["cooldown_s"][self.profile]
+        if backoff:
+            self.multiplier = min(self.multiplier * self.s["backoff_factor"], self.s["backoff_max"])
 
     def _reset(self) -> None:
         self.samples.clear()
@@ -193,16 +233,26 @@ class StillnessDetector:
             self.reason = "camera moving"
             return []
         view = body_view(person, frame.aspect, self.c["min_kp_conf"], self.c["lying_deg"],
-                         self.c["sitting_knee_ratio"])
+                         self.c["sitting_knee_ratio"], self.s.get("slump"))
         if view is None:
             self._reset()
             self.reason = "body not visible enough (need shoulders + head, or hips)"
             return []
         posture, scale = view
-        if posture not in self.s["postures"]:
+        kind = TIMER_KIND.get(posture)
+        if self.kind in ("sitting", "slumped") and kind == "upright":
+            self.multiplier = 1.0  # stood up: he's active again, back to normal timers
+        self.kind = kind
+        if posture not in self.s["postures"] or kind is None:
             self._reset()
             self.reason = f"{posture}: timer off" + (" (lying still is sleeping)" if posture == "lying" else "")
             return []
+        if self.cooldown_until is not None:
+            if frame.ts < self.cooldown_until:
+                self._reset()
+                self.reason = f"cooldown after check-in: {mmss(self.cooldown_until - frame.ts)} left"
+                return []
+            self.cooldown_until = None
         # Compare the current pose with every pose from the last window_s and take the biggest
         # movement. Comparing with a single old pose would miss motion that repeats (rocking).
         # Only confident keypoints count: hidden joints get jumpy guesses that look like movement.
@@ -218,14 +268,20 @@ class StillnessDetector:
             self.reason = "warming up"
             return []
         self.last_motion = max(moves)
+        label = KIND_LABEL[kind]
         if self.last_motion >= self.s["motion_threshold"]:
+            if self.last_motion >= self.s["active_move"]:
+                self.multiplier = 1.0  # really moving around (walking): back to normal timers
             self.still_since, self.fired = None, False
-            self.reason = f"moving ({posture})"
+            self.reason = f"moving ({label})"
             return []
-        self.reason = f"still ({posture})"
         if self.still_since is None:
             self.still_since = frame.ts - window
-        if not self.fired and frame.ts - self.still_since >= self.s["seconds"]:
+        limit = self.threshold(kind)
+        self.reason = f"still ({label}) {mmss(frame.ts - self.still_since)} / {mmss(limit)}"
+        if self.multiplier > 1:
+            self.reason += f"  (x{self.multiplier:g} after last 'I'm OK')"
+        if not self.fired and frame.ts - self.still_since >= limit:
             self.fired = True
             return [VisionEvent("stillness", person.track_id, "resident", frame.ts)]
         return []
@@ -249,7 +305,8 @@ class Detectors:
         if person is None:
             return "out_of_view"
         view = body_view(person, frame.aspect, self.cfg["min_kp_conf"], self.cfg["lying_deg"],
-                         self.cfg["sitting_knee_ratio"])
+                         self.cfg["sitting_knee_ratio"], self.cfg["stillness"].get("slump"))
         if view is None:
             return "out_of_view"
-        return "upright" if view[0] == "upper_body" else view[0]  # head above shoulders: not on the floor
+        # Head above the shoulders = not on the floor; slumped in a chair = seated.
+        return {"upper_body": "upright", "slumped": "sitting"}.get(view[0], view[0])

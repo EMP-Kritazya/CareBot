@@ -1,9 +1,9 @@
-"""Face lock: which tracked person is the resident (Ruth).
+"""Face lock: which tracked person is the resident (Sandy).
 
 How it works:
 1. Every few frames, for each tracked person, crop the head using their pose keypoints
    (nose, eyes, ears) and look for a face in that crop with YuNet.
-2. Compare the face with Ruth's enrolled faces using SFace (cosine similarity).
+2. Compare the face with Sandy's enrolled faces using SFace (cosine similarity).
 3. `ResidentLock` binds a match to that person's track id. The lock then rides the track id
    (ByteTrack) while the face is hidden, because falls hide faces.
 
@@ -66,43 +66,67 @@ def head_box(person: Person, width: int, height: int, min_conf: float = 0.3,
 class ResidentLock:
     """Decides which track id is the resident, from face scores and track continuity.
 
-    - A face score >= match_threshold binds the resident to that track (the face is the authority).
-    - A clear face scoring < reject_threshold marks that track as "not the resident": if the lock
-      was on it (a tracker id swap), the lock is dropped.
+    - A face must score >= match_threshold on `confirm_hits` checks in a row before the resident is
+      bound to that track. One lucky frame can't move "Sandy" onto someone else.
+    - If two tracks match in the same check, the best one wins only by `switch_margin`; otherwise the
+      current lock stays where it is.
+    - A clear face scoring < reject_threshold marks that track as "not the resident": if the lock was
+      on it (a tracker id swap), the lock is dropped.
+    - With a face enrolled, a track whose face was seen and did NOT reach match_threshold is never
+      assumed to be the resident. The "only person in view" assumption is for when no face is
+      enrolled yet, or the face simply can't be seen (too far, turned away).
     - The lock survives while its track is visible, and for relock_after_s after it disappears.
-    - With no lock and exactly one person in view who isn't known to be someone else, assume
-      they're the resident (if assume_single_is_resident). The face confirms or overrides later.
     """
-    match_threshold: float = 0.363
-    reject_threshold: float = 0.2
+    match_threshold: float = 0.42
+    reject_threshold: float = 0.30
+    confirm_hits: int = 2
+    switch_margin: float = 0.08
     relock_after_s: float = 2.0
     assume_single_is_resident: bool = True
+    enrolled: bool = True
     track_id: int | None = None
     source: str | None = None          # "face" | "assumed" | "manual"
     score: float | None = None
     missing_since: float | None = None
     not_resident: dict[int, float] = field(default_factory=dict)  # track id -> when rejected
+    unmatched: dict[int, float] = field(default_factory=dict)     # face seen but below match -> when
+    hits: dict[int, int] = field(default_factory=dict)            # consecutive matching checks
 
     @classmethod
-    def from_config(cls, cfg: dict) -> "ResidentLock":
-        keys = ("match_threshold", "reject_threshold", "relock_after_s", "assume_single_is_resident")
-        return cls(**{k: cfg[k] for k in keys if k in cfg})
+    def from_config(cls, cfg: dict, enrolled: bool = True) -> "ResidentLock":
+        keys = ("match_threshold", "reject_threshold", "confirm_hits", "switch_margin", "relock_after_s",
+                "assume_single_is_resident")
+        return cls(**{k: cfg[k] for k in keys if k in cfg}, enrolled=enrolled)
 
     def update(self, ts: float, track_ids: list[int], scores: dict[int, float]) -> int | None:
         visible = set(track_ids)
-        best_tid, best = None, self.match_threshold
         for tid, sc in scores.items():
-            if sc >= best:
-                best_tid, best = tid, sc
-            elif sc < self.reject_threshold:
-                self.not_resident[tid] = ts
-        if best_tid is not None:
-            self.track_id, self.source, self.score, self.missing_since = best_tid, "face", best, None
-            self.not_resident.pop(best_tid, None)
-        elif self.track_id is not None and self.track_id in self.not_resident and self.source != "manual":
-            self._clear()  # a clear face says this track isn't Ruth (tracker swapped ids)
-        elif self.track_id is not None and self.track_id in scores and self.source == "face":
-            self.score = scores[self.track_id]  # still her, just a weaker view
+            if sc >= self.match_threshold:
+                self.hits[tid] = self.hits.get(tid, 0) + 1
+                self.unmatched.pop(tid, None)
+                self.not_resident.pop(tid, None)
+            else:
+                self.hits[tid] = 0
+                self.unmatched[tid] = ts
+                if sc < self.reject_threshold:
+                    self.not_resident[tid] = ts
+
+        confirmed = sorted(((scores[t], t) for t in scores if self.hits.get(t, 0) >= self.confirm_hits), reverse=True)
+        if confirmed:
+            best_score, best = confirmed[0]
+            tie = len(confirmed) > 1 and best_score - confirmed[1][0] < self.switch_margin
+            current_ok = self.track_id in scores and scores[self.track_id] >= self.match_threshold
+            if not tie and not (current_ok and self.track_id != best and self.source == "face"):
+                self.track_id, self.source, self.score, self.missing_since = best, "face", best_score, None
+            elif self.track_id in scores:
+                self.score = scores[self.track_id]
+        if self.track_id is not None and self.source != "manual":
+            if self.track_id in self.not_resident:
+                self._clear()  # a clear face says this track isn't him (tracker swapped ids)
+            elif self.source == "assumed" and self.enrolled and self.track_id in self.unmatched:
+                self._clear()  # assumed, but the face we just saw isn't his
+            elif self.source == "face" and self.track_id in scores:
+                self.score = scores[self.track_id]  # still him, maybe a weaker view
 
         if self.track_id is not None:
             if self.track_id in visible:
@@ -112,12 +136,16 @@ class ResidentLock:
                 if ts - self.missing_since > self.relock_after_s:
                     self._clear()
 
-        if (self.track_id is None and self.assume_single_is_resident and len(visible) == 1
-                and next(iter(visible)) not in self.not_resident):
-            self.track_id, self.source, self.score, self.missing_since = next(iter(visible)), "assumed", None, None
+        if self.track_id is None and self.assume_single_is_resident and len(visible) == 1:
+            only = next(iter(visible))
+            if only not in self.not_resident and not (self.enrolled and only in self.unmatched):
+                self.track_id, self.source, self.score, self.missing_since = only, "assumed", None, None
 
-        for tid in [t for t, when in self.not_resident.items() if t not in visible and ts - when > 30]:
-            del self.not_resident[tid]
+        for book in (self.not_resident, self.unmatched):
+            for tid in [t for t, when in book.items() if t not in visible and ts - when > 30]:
+                del book[tid]
+        for tid in [t for t in self.hits if t not in visible]:
+            del self.hits[tid]
         return self.track_id
 
     def set_manual(self, track_id: int | None) -> None:
@@ -130,9 +158,9 @@ class ResidentLock:
     def _clear(self) -> None:
         self.track_id, self.source, self.score, self.missing_since = None, None, None, None
 
-    def label(self, name: str = "Ruth") -> str:
+    def label(self, name: str = "Sandy") -> str:
         if self.track_id is None:
-            return f"{name}: not identified" + (" (waiting for her face, or one person alone)"
+            return f"{name}: not identified" + (" (waiting for his face, or one person alone)"
                                                if self.assume_single_is_resident else "")
         how = {"face": f"face match {self.score:.2f}" if self.score is not None else "face",
                "assumed": "assumed: only person in view", "manual": "set by hand"}[self.source or "face"]
@@ -142,7 +170,7 @@ class ResidentLock:
 # ---------------------------------------------------------------- OpenCV parts
 
 class FaceMatcher:
-    """YuNet finds the face in each person's head crop; SFace compares it with Ruth's enrollment."""
+    """YuNet finds the face in each person's head crop; SFace compares it with Sandy's enrollment."""
 
     CROP = 192  # head crops are resized to this square before face detection
 
@@ -156,7 +184,7 @@ class FaceMatcher:
                                                   cfg.get("face_score", 0.6))
         self.recognizer = cv2.FaceRecognizerSF.create(str(ensure_model("sface")), "")
         self.path = ROOT / cfg.get("enrolled", "data/faces/resident.npz")
-        self.default_name = cfg.get("name", "Ruth")
+        self.default_name = cfg.get("name", "Sandy")
         self.last_faces: dict[int, tuple[tuple[int, int, int, int], float]] = {}  # tid -> (box, score) for drawing
         self.reload()
 
@@ -166,7 +194,8 @@ class FaceMatcher:
         if self.path.exists():
             data = self.np.load(self.path)
             self.enrolled = data["embeddings"].astype(self.np.float32)
-            self.name = str(data["name"])
+            # The configured name (profile.resident_name) wins over the one stored with the face.
+            self.name = self.cfg.get("name") or str(data["name"])
             self.updated = float(data["updated"]) if "updated" in data else None
 
     @property
@@ -187,7 +216,7 @@ class FaceMatcher:
         return max(float(self.recognizer.match(feature, e.reshape(1, -1), 0)) for e in self.enrolled)
 
     def score_people(self, image, people) -> dict[int, float]:
-        """track id -> similarity to Ruth, for people whose face is visible enough to judge."""
+        """track id -> similarity to Sandy, for people whose face is visible enough to judge."""
         self.last_faces = {}
         if not self.ready:
             return {}

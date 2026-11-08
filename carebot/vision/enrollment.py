@@ -4,7 +4,7 @@ Two modes:
 - "new": start a fresh face for the resident (replaces what was saved).
 - "add": recalibrate, adding samples to the saved face (e.g. at the robot's real distance and
   lighting). Only faces that already look somewhat like the saved one are added, so a visitor
-  can't be mixed into Ruth's profile by accident.
+  can't be mixed into Sandy's profile by accident.
 
 Faces are saved to data/faces/resident.npz on this machine only (git-ignored).
 """
@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-MAX_SAMPLES = 64  # newest kept; old samples age out as she's recalibrated
+MAX_SAMPLES = 64  # newest kept; old samples age out as he's recalibrated
 
 
 def merge_samples(existing, new, mode: str, cap: int = MAX_SAMPLES):

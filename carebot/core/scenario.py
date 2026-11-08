@@ -84,7 +84,7 @@ class Scenario:
     def speak(self, text: str):
         """Someone answers the robot's latest question out loud."""
         ask = self.last(st.Ask)
-        if ask and ask.listen == "transcript":
+        if ask and (ask.answer or ("report" if ask.listen == "transcript" else "intent")) == "report":
             return self.send(st.Reported(report_status_by_keywords(text), text, "in_room", self.t, ask.ask_id))
         return self.send(st.Heard(self._ask_id(), check_in_intent(text), text, self.t))
 

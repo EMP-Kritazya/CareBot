@@ -33,8 +33,8 @@ _REPORT_RULES = [
     ("hospital", re.compile(r"\b(hospital|emergency room|the er)\b")),
     ("ambulance_here", re.compile(r"\b(ambulance|paramedics?|emts?|firefighters?)\b.*\b(here|arrived|came|is here)\b"
                                   r"|\b(paramedics?|emts?) (are|is) here\b")),
-    ("she_is_ok", re.compile(r"\b(she'?s|she is|he'?s|he is|they'?re|they are)\s+(ok|okay|fine|alright|all right)\b")),
-    ("with_her", re.compile(r"\b(with her|with him|with them|i'?m here|i am here|neighbor|neighbour|helping)\b")),
+    ("resident_ok", re.compile(r"\b(she'?s|she is|he'?s|he is|they'?re|they are)\s+(ok|okay|fine|alright|all right)\b")),
+    ("with_resident", re.compile(r"\b(with her|with him|with them|i'?m here|i am here|neighbor|neighbour|helping)\b")),
 ]
 
 

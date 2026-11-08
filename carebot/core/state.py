@@ -25,10 +25,10 @@ Mode = Literal["MONITORING", "CHECK_IN", "ALERTED"]
 EventKind = Literal["fall", "stillness", "manual"]
 Who = Literal["resident", "other"]
 Posture = Literal["upright", "sitting", "lying", "out_of_view"]
-ReportStatus = Literal["hospital", "ambulance_here", "with_her", "she_is_ok", "unclear"]
-Awaiting = Literal["check_in", "confirm", "onscene"]
+ReportStatus = Literal["hospital", "ambulance_here", "with_resident", "resident_ok", "unclear"]
+Awaiting = Literal["check_in", "confirm", "onscene", "comfort"]
 
-CLOSING_REPORTS = ("hospital", "ambulance_here", "she_is_ok")
+CLOSING_REPORTS = ("hospital", "ambulance_here", "resident_ok")
 
 
 # ---------------------------------------------------------------- events (inputs)
@@ -39,6 +39,15 @@ class Detected:
     kind: Literal["fall", "stillness"]
     who: Who
     ts: float
+    track_id: int | None = None  # which tracked person (so a later GotUp can be matched to them)
+
+
+@dataclass(frozen=True)
+class GotUp:
+    """The camera saw the person whose fall started this incident get back on their feet.
+    A fact to pass on, never a cancel: only their own spoken "I'm OK" closes a check-in."""
+    ts: float
+    track_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -108,7 +117,14 @@ class Reset:
     ts: float
 
 
-Event = Union[Detected, ManualTrigger, Heard, Silence, ButtonPressed, Reported,
+@dataclass(frozen=True)
+class ComfortWindow:
+    """Posted by the runtime every so often while alerted and idle: pause the alarm, talk to him,
+    listen, and pass on whatever he says."""
+    ts: float
+
+
+Event = Union[Detected, GotUp, ManualTrigger, Heard, Silence, ButtonPressed, Reported, ComfortWindow,
               EscalationSent, ReceiverReply, CallUpdate, Reset]
 
 
@@ -137,6 +153,8 @@ class StopAlarm:
 @dataclass(frozen=True)
 class Say:
     text: str
+    kind: str = ""
+    heard: str = ""   # what the person just said (a reply may kindly acknowledge it)
 
 
 @dataclass(frozen=True)
@@ -147,13 +165,17 @@ class Ask:
     text: str
     listen: Literal["keywords", "transcript"]
     loud: bool = False
+    kind: str = ""        # check_in | confirm | onscene | comfort (lets the phraser and logs know)
+    answer: str = ""      # "intent" (Heard) or "report" (Reported); "" = by listen mode
 
 
 @dataclass(frozen=True)
 class Escalate:
-    """Fire neighbors (if include_neighbors), family and 911 at once. Answer with EscalationSent."""
+    """Fire neighbors (if include_neighbors), family and 911 at once. Answer with EscalationSent.
+    family_only: he fell, got back up, then didn't answer. Only the family is told (no 911)."""
     incident_id: str
     include_neighbors: bool
+    family_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -182,6 +204,14 @@ class Publish:
 
 
 @dataclass(frozen=True)
+class RestartStillness:
+    """An incident closed: restart the stillness timer. cooldown: pause stillness checks for a while
+    (he was just checked on). backoff: he said "I'm OK" to a stillness check, so wait longer next time."""
+    cooldown: bool
+    backoff: bool
+
+
+@dataclass(frozen=True)
 class LogLocal:
     """Kept on the robot only (false alarms, recoveries). Never sent."""
     kind: str
@@ -189,7 +219,7 @@ class LogLocal:
 
 
 Action = Union[SetEyes, Chirp, StartAlarm, StopAlarm, Say, Ask, Escalate, PauseEscalation,
-               ResumeEscalation, SendUpdate, Publish, LogLocal]
+               ResumeEscalation, SendUpdate, Publish, LogLocal, RestartStillness]
 
 
 # ---------------------------------------------------------------- state
@@ -199,6 +229,7 @@ class Entry:
     ts: float
     kind: str
     detail: str
+    quote: str | None = None   # someone's exact words, kept verbatim for updates and the 911 fact sheet
 
 
 @dataclass(frozen=True)
@@ -210,12 +241,14 @@ class Incident:
     timeline: tuple[Entry, ...] = ()
     alerts_sent: bool = False
     channels: tuple[str, ...] = ()
-    neighbor: Literal["none", "alerted", "on_the_way", "with_her"] = "none"
+    neighbor: Literal["none", "alerted", "on_the_way", "with_resident"] = "none"
     helper: str | None = None
     outcome: str | None = None
+    track_id: int | None = None
+    got_up_at: float | None = None
 
-    def log(self, ts: float, kind: str, detail: str = "") -> "Incident":
-        return replace(self, timeline=self.timeline + (Entry(ts, kind, detail),))
+    def log(self, ts: float, kind: str, detail: str = "", quote: str | None = None) -> "Incident":
+        return replace(self, timeline=self.timeline + (Entry(ts, kind, detail, quote),))
 
 
 @dataclass(frozen=True)
@@ -231,7 +264,7 @@ class Robot:
 
 def attribute_press(resident_posture: Posture) -> Who:
     """Who pressed the button, from what the camera saw at that moment.
-    Ruth upright or sitting: it was Ruth. Ruth lying down or out of view: someone else."""
+    Sandy upright or sitting: it was Sandy. Sandy lying down or out of view: someone else."""
     return "resident" if resident_posture in ("upright", "sitting") else "other"
 
 
@@ -261,13 +294,16 @@ class Machine:
 
     def _monitoring(self, s: Robot, e: Event) -> tuple[Robot, list[Action]]:
         if isinstance(e, Detected):
-            return self._start(s, e.kind, e.who, e.ts)
+            return self._start(s, e.kind, e.who, e.ts, e.track_id)
         if isinstance(e, ManualTrigger):
             return self._start(s, "manual", "resident", e.ts)
+        if (isinstance(e, EscalationSent) and s.closed and s.closed[-1].outcome == "got_up_no_answer"
+                and "family" in e.channels):
+            return s, [Say(script.told_family_got_up(self.p, s.closed[-1].who))]
         return s, []  # button presses, stray replies: nothing to do
 
-    def _start(self, s: Robot, kind: EventKind, who: Who, ts: float):
-        inc = Incident(id=f"inc-{int(ts * 1000)}", event=kind, who=who, started_at=ts)
+    def _start(self, s: Robot, kind: EventKind, who: Who, ts: float, track_id: int | None = None):
+        inc = Incident(id=f"inc-{int(ts * 1000)}", event=kind, who=who, started_at=ts, track_id=track_id)
         inc = inc.log(ts, "detected", f"{kind} ({who})")
         s = replace(s, mode="CHECK_IN", incident=inc)
         s, ask = self._ask(s, "check_in", 1, ts)
@@ -291,16 +327,24 @@ class Machine:
                                                    LogLocal("check_in_ok", f"{inc.event} ({via})")])
             if e.intent == "help":
                 return self._alert(s, e.ts)
-            return self._ask_again_or(s, e.ts, lambda: self._alert(s, e.ts))
+            return self._ask_again_or(s, e.ts, lambda: self._no_answer(s, e.ts))
+        if isinstance(e, GotUp):
+            if not self._same_person(inc, e) or inc.got_up_at is not None:
+                return s, []
+            inc = replace(inc, got_up_at=e.ts).log(e.ts, "got_up", "camera saw them get back up")
+            s = replace(s, incident=inc)
+            if s.awaiting != "check_in":
+                return s, []  # mid-confirmation or talking to someone: keep the current question
+            s, ask = self._ask(s, "check_in", 1, e.ts)  # a fresh round, worded for someone standing
+            return s, [Chirp(), ask]
         if isinstance(e, Silence):
             s = replace(s, incident=inc.log(e.ts, "response", "silence"))
             note = "button pressed, no spoken response" if s.awaiting == "confirm" else None
-            return self._ask_again_or(s, e.ts, lambda: self._alert(s, e.ts, note=note,
-                                                                   include_neighbors=s.awaiting != "onscene"))
+            return self._ask_again_or(s, e.ts, lambda: self._no_answer(s, e.ts, note))
         if isinstance(e, ButtonPressed):
             return self._button(s, e)
         if isinstance(e, Reported) and e.source == "in_room" and s.awaiting == "onscene":
-            # Someone else is with her before any alert went out. Only the fallen person's own
+            # Someone else is with him before any alert went out. Only the fallen person's own
             # "I'm OK" cancels a check-in, so we escalate (without neighbors: a person is there)
             # and pass on exactly what they said.
             if e.status == "unclear" and s.asks_in_round < 2:
@@ -337,12 +381,31 @@ class Machine:
             if e.target == "911" and e.status == "unanswered":
                 return s, [Say(script.psap_unanswered())]
             return s, []
+        if isinstance(e, GotUp):
+            if not self._same_person(inc, e) or inc.got_up_at is not None:
+                return s, []
+            inc = replace(inc, got_up_at=e.ts).log(e.ts, "got_up", "camera saw them get back up")
+            helper = inc.helper if inc.neighbor in ("on_the_way", "with_resident") else None
+            return replace(s, incident=inc), [
+                Say(script.got_up_alerted(self.p, inc.who, helper, inc.alerts_sent)),
+                SendUpdate(inc.id, "got_up", "", "camera"),
+                Publish({"type": "update", "incident_id": inc.id, "status": "got_up", "ts": e.ts})]
+        if isinstance(e, ComfortWindow):
+            if s.awaiting is not None:
+                return s, []  # in the middle of a question: not now
+            s, ask = self._ask(s, "comfort", 1, e.ts)
+            return s, [StopAlarm(), ask]
         if isinstance(e, ButtonPressed):
             return self._button(s, e)
+        if isinstance(e, Heard) and s.awaiting == "comfort":
+            return self._comfort_answer(s, e)
+        if isinstance(e, Silence) and s.awaiting == "comfort":
+            s = replace(s, incident=inc.log(e.ts, "response", "comfort window: silence"), awaiting=None, asks_in_round=0)
+            return s, [StartAlarm()]
         if isinstance(e, Heard):
             s = replace(s, incident=inc.log(e.ts, "response", f"{e.intent}: {e.text}"))
             if s.awaiting == "confirm" and e.intent == "ok":
-                quote = Reported("she_is_ok", e.text, "in_room", e.ts)
+                quote = Reported("resident_ok", e.text, "in_room", e.ts)
                 return self._report(s, quote, speaker="resident")
             if s.awaiting == "confirm" and e.intent == "help":
                 return self._resume(s, [Say(script.still_getting_help())])
@@ -363,16 +426,37 @@ class Machine:
     def _ask(self, s: Robot, kind: Awaiting, n: int, ts: float) -> tuple[Robot, Ask]:
         inc = s.incident
         assert inc is not None
-        if kind == "check_in":
+        if kind == "check_in" and inc.got_up_at is not None:
+            text, listen = script.got_up_check_in(self.p, inc.who, n), "keywords"
+        elif kind == "check_in":
             text, listen = script.check_in(self.p, inc.event, inc.who, n), "keywords"
         elif kind == "confirm":
             text, listen = script.confirm(self.p, inc.who, n), "keywords"
+        elif kind == "comfort":
+            helper = inc.helper if inc.neighbor in ("on_the_way", "with_resident") else None
+            text, listen = script.comfort(self.p, inc.who, helper, inc.alerts_sent and bool(inc.channels)), "transcript"
         else:
             text, listen = script.onscene(self.p, inc.who, s.resident_posture, n), "transcript"
         ask_id = s.last_ask_id + 1
         s = replace(s, last_ask_id=ask_id, awaiting=kind, asks_in_round=n,
                     incident=inc.log(ts, "ask", f"{kind} #{n}"))
-        return s, Ask(ask_id, text, listen, loud=n > 1)
+        answer = "report" if kind == "onscene" else "intent"
+        return s, Ask(ask_id, text, listen, loud=n > 1, kind=kind, answer=answer)
+
+    def _comfort_answer(self, s: Robot, e: Heard):
+        """He spoke during a comfort window. "I'm OK" closes like a spoken confirmation; anything
+        else is passed on word for word and answered kindly, and the alarm resumes."""
+        inc = s.incident
+        assert inc is not None
+        if e.intent == "ok":
+            return self._report(s, Reported("resident_ok", e.text, "in_room", e.ts), speaker="resident")
+        inc = inc.log(e.ts, "resident_said", e.intent, quote=e.text)
+        s = replace(s, incident=inc, awaiting=None, asks_in_round=0)
+        return s, [SendUpdate(inc.id, "resident_said", e.text, "resident"),
+                   Publish({"type": "update", "incident_id": inc.id, "status": "resident_said",
+                            "quote": e.text, "source": "resident", "ts": e.ts}),
+                   Say(script.comfort_reply(self.p, inc.who), kind="comfort_reply", heard=e.text),
+                   StartAlarm()]
 
     def _ask_again_or(self, s: Robot, ts: float, otherwise):
         """Ask the same question again, up to the limit, then fall through to `otherwise`.
@@ -396,6 +480,21 @@ class Machine:
         s, ask = self._ask(s, "confirm" if by == "resident" else "onscene", 1, e.ts)
         return s, actions + [ask]
 
+    @staticmethod
+    def _same_person(inc: Incident, e: GotUp) -> bool:
+        return inc.track_id is None or e.track_id is None or inc.track_id == e.track_id
+
+    def _no_answer(self, s: Robot, ts: float, note: str | None = None):
+        """The asks ran out with no answer. Full alert, unless the camera saw them get back up:
+        then only the family hears about it (they can call), and no 911 or neighbors."""
+        inc = s.incident
+        assert inc is not None
+        if inc.got_up_at is not None and s.awaiting in ("check_in", "confirm"):
+            inc = inc.log(ts, "note", "got back up, then no spoken answer: family only")
+            return self._close(replace(s, incident=inc), "got_up_no_answer", ts,
+                               [Escalate(inc.id, include_neighbors=False, family_only=True)])
+        return self._alert(s, ts, note=note, include_neighbors=s.awaiting != "onscene")
+
     def _alert(self, s: Robot, ts: float, note: str | None = None, include_neighbors: bool = True):
         inc = s.incident
         assert inc is not None
@@ -411,13 +510,13 @@ class Machine:
         inc = s.incident
         assert inc is not None
         s = replace(s, awaiting=None, asks_in_round=0)
-        eyes = "help_coming" if inc.neighbor in ("on_the_way", "with_her") else "alerted"
+        eyes = "help_coming" if inc.neighbor in ("on_the_way", "with_resident") else "alerted"
         return s, (extra or []) + [SetEyes(eyes), StartAlarm(), ResumeEscalation(inc.id)]
 
     def _report(self, s: Robot, e: Reported, speaker: str = "someone"):
         inc = s.incident
         assert inc is not None
-        inc = inc.log(e.ts, "report", f"{e.status} via {e.source}: {e.quote!r}")
+        inc = inc.log(e.ts, "report", f"{e.status} via {e.source}", quote=e.quote)
         s = replace(s, incident=inc)
         if e.status == "unclear" and e.source == "in_room" and s.awaiting == "onscene" and s.asks_in_round < 2:
             s, ask = self._ask(s, "onscene", s.asks_in_round + 1, e.ts)
@@ -432,8 +531,8 @@ class Machine:
                 actions.insert(0, Say(script.glad_ok(self.p, inc.who)))
         if e.status in CLOSING_REPORTS:
             return self._close(replace(s, awaiting=None), e.status, e.ts, actions)
-        if e.status == "with_her":
-            inc = replace(inc, neighbor="with_her")
+        if e.status == "with_resident":
+            inc = replace(inc, neighbor="with_resident")
             return replace(s, incident=inc, awaiting=None), actions + [StopAlarm(), SetEyes("help_coming")]
         return replace(s, awaiting=None), actions  # unclear: passed on as-is, stay alerted
 
@@ -442,8 +541,10 @@ class Machine:
         assert inc is not None
         inc = replace(inc, outcome=outcome).log(ts, "closed", outcome)
         done = Robot(mode="MONITORING", last_ask_id=s.last_ask_id, closed=s.closed + (inc,))
-        out = list(actions) + [StopAlarm(), SetEyes("watching")]
-        if inc.alerts_sent or s.mode == "ALERTED":
+        said_ok = outcome in ("ok", "resident_ok")
+        out = list(actions) + [StopAlarm(), SetEyes("watching"),
+                               RestartStillness(cooldown=True, backoff=inc.event == "stillness" and said_ok)]
+        if inc.alerts_sent or s.mode == "ALERTED" or outcome == "got_up_no_answer":
             out.append(Publish({"type": "close", "incident_id": inc.id, "outcome": outcome, "ts": ts}))
         else:
             out.append(Publish({"type": "status", "mode": "MONITORING", "ts": ts}))

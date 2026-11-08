@@ -10,8 +10,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Profile:
-    resident_name: str = "Ruth"
-    family_name: str = "Priya"
+    resident_name: str = "Sandy"
+    family_name: str = "Suyog"
 
     @classmethod
     def from_config(cls, cfg: dict) -> "Profile":
@@ -33,6 +33,29 @@ def check_in(p: Profile, event: str, who: str, n: int) -> str:
     else:
         line = f"{p.resident_name}, are you OK? {OK_HELP}"
     return line if n == 1 else f"I didn't hear you. {line}"
+
+
+def got_up_check_in(p: Profile, who: str, n: int) -> str:
+    """The camera saw them get back up during the check-in."""
+    line = (f"{p.resident_name}, I see you got up." if who == "resident" else "I see you got up.")
+    line += " Are you OK? Say 'I'm OK' or press my button."
+    return line if n == 1 else f"I didn't hear you. {line}"
+
+
+def got_up_alerted(p: Profile, who: str, helper: str | None, alerts_sent: bool) -> str:
+    """The camera saw them get back up after the alert went out. Help is not called off."""
+    line = f"{p.resident_name}, I see you're up." if who == "resident" else "I see you're up."
+    line += " If you're OK, press my button and say 'I'm OK'."
+    if helper:
+        line += f" {helper} is still on the way."
+    elif alerts_sent:
+        line += " I've already called for help."
+    return line
+
+
+def told_family_got_up(p: Profile, who: str) -> str:
+    """Said only after the family message was sent."""
+    return f"I didn't hear an answer, so I've let {p.family_name} know about the fall."
 
 
 def glad_ok(p: Profile, who: str) -> str:
@@ -78,7 +101,23 @@ def helper_coming(name: str, street: str | None) -> str:
 
 
 def still_getting_help() -> str:
-    return "OK. I'm still getting help."
+    return "I'm still getting help."
+
+
+def comfort(p: Profile, who: str, helper: str | None, help_called: bool) -> str:
+    """Comfort window while waiting. Only states what's true: who's coming if someone said yes,
+    that help was called only if the sends went out."""
+    line = f"{p.resident_name}, I'm here with you." if who == "resident" else "I'm here with you."
+    if helper:
+        line += f" {helper} is on the way."
+    elif help_called:
+        line += " I've called for help."
+    return line + " You can talk to me."
+
+
+def comfort_reply(p: Profile, who: str) -> str:
+    name = f", {p.resident_name}" if who == "resident" else ""
+    return f"I hear you{name}. I've passed that on to {p.family_name} and 911."
 
 
 def passed_on(p: Profile) -> str:

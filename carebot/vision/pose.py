@@ -64,13 +64,24 @@ def filter_people(dets: list[Detection], cfg: dict) -> list[Detection]:
     return out
 
 
+def resolve_model(name: str) -> str:
+    """A model path relative to the repo (models/...) if it exists there, else the name as given."""
+    from carebot.config import ROOT
+
+    path = ROOT / name
+    return str(path) if path.exists() else name
+
+
 class YoloPoseSource:
     def __init__(self, cfg: dict | None = None) -> None:
         from ultralytics import YOLO  # lazy: big import
 
         cfg = cfg or {}
         self.cfg = cfg
-        self.model = YOLO(cfg.get("model", "yolo11n-pose.pt"))  # downloads once on first use
+        self.model_name = resolve_model(cfg.get("model", "yolo11n-pose.pt"))
+        # .pt downloads once on first use. An NCNN folder (models/yolo11n-pose_416_ncnn_model) is the fast
+        # format for the Pi's ARM CPU; its input size is fixed at export, so imgsz must match it.
+        self.model = YOLO(self.model_name, task="pose")
         self.imgsz = cfg.get("imgsz", 640)
         self.conf = cfg.get("conf", 0.5)
         self.tracker = cfg.get("tracker", "bytetrack.yaml")
