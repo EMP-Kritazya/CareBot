@@ -1,2 +1,6 @@
 # Pi-only packages for the hardware drivers. Owned by Hardware (see docs/HARDWARE.md).
 # Install on the robot: pip install -r requirements.txt -r requirements-pi.txt
+rpi-hardware-pwm
+# gpiozero and lgpio come with Raspberry Pi OS (apt); the venv sees them via --system-site-packages.
+adafruit-blinka
+adafruit-circuitpython-neopixel-spi
