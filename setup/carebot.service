@@ -1,0 +1,24 @@
+# CareBot on boot, as a systemd *user* service. Owned by Hardware (see docs/HARDWARE.md).
+# A user service runs inside your login session, so espeak can reach PipeWire and the JBL.
+# (A system service with User= usually can't, and CareBot would run silently.)
+#
+# Install on the Pi (once):
+#   mkdir -p ~/.config/systemd/user && cp ~/CareBot/setup/carebot.service ~/.config/systemd/user/
+#   sudo loginctl enable-linger "$USER"        # start at boot without anyone logged in
+#   systemctl --user daemon-reload && systemctl --user enable --now carebot
+#   journalctl --user -u carebot -f            # the narration
+# Stop it before running CareBot by hand:  systemctl --user stop carebot
+
+[Unit]
+Description=CareBot watcher
+After=pipewire.service wireplumber.service
+Wants=pipewire.service
+
+[Service]
+WorkingDirectory=%h/CareBot
+ExecStart=%h/CareBot/.venv/bin/python -m apps.watcher --config config/pi.yaml --headless --demo
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

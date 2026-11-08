@@ -61,3 +61,24 @@ Only the hardware teammate writes here. Newest at the bottom, under a timestamp 
 - The button callback runs on gpiozero's thread, as the contract says. Exceptions from it are
   logged, not raised.
 - Full pin map and power in `docs/wiring.md`. Needs `dtparam=spi=on` for the eyes.
+
+## 2026-11-08 05:45: final integration review: setup/ is in, three runbook fixes
+
+Reviewed main at 02bdd6a. The app drives the hardware correctly (button -> queue, eyes and
+buzzer from the state machine, head frozen during incidents, `hw.close()` on exit), all eye states
+the state machine uses exist in the driver, and 303/304 tests pass on Python 3.11 (the one
+failure needs ultralytics, which my test machine doesn't have). `apps.simulate` runs every story.
+
+- **New `setup/`** (mine): `carebot.service`, `jbl-reconnect@.service` + `jbl-reconnect.sh`,
+  `config.txt.snippet` + `add-config.sh`. `.gitattributes` keeps `*.sh` and `*.service` on LF
+  line endings; with CRLF from a Windows checkout they fail on the Pi.
+- Please update `docs/INTEGRATION.md`:
+  1. **Step 6a:** the mic also needs `dtparam=i2s=on` and `dtoverlay=adau7002-simple`, or the
+     INMP441 never shows up in step 7. Easiest: `sudo bash setup/add-config.sh` adds all four lines.
+  2. **Step 12:** run CareBot as a systemd **user** service (`setup/carebot.service`, install steps
+     inside), not a system service with `User=`. A system service usually can't reach PipeWire, so
+     the robot would run but never speak.
+  3. **Step 3:** the Pi's venv currently lives at `~/carebot-venv`; I'm linking it as
+     `~/CareBot/.venv` so every `.venv/bin/python` command works as written.
+- Logitech model: its MJPG list tops out at 1920x1080, so it's C920 class, not a C270, and
+  `fov_deg: [70, 43]` fits. Confirming the exact name with `v4l2-ctl --list-devices` on the Pi.

@@ -1,0 +1,19 @@
+# Keeps the JBL speaker connected (it drops when idle). Owned by Hardware.
+# The instance name is the speaker's Bluetooth address, from `bluetoothctl devices`.
+#
+# Install on the Pi (once, after pairing and trusting the speaker):
+#   mkdir -p ~/.config/systemd/user && cp ~/CareBot/setup/jbl-reconnect@.service ~/.config/systemd/user/
+#   sudo loginctl enable-linger "$USER"
+#   systemctl --user daemon-reload && systemctl --user enable --now jbl-reconnect@AA:BB:CC:DD:EE:FF
+
+[Unit]
+Description=Keep the JBL speaker %i connected
+After=pipewire.service wireplumber.service
+
+[Service]
+ExecStart=/bin/bash %h/CareBot/setup/jbl-reconnect.sh %i
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

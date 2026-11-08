@@ -82,14 +82,25 @@ are fine on the Pi's 5 V.
 
 ## Pi config.txt lines
 
-At the end of `/boot/firmware/config.txt`, then reboot:
+All four lines are in `setup/config.txt.snippet`. `sudo bash setup/add-config.sh` appends the ones
+`/boot/firmware/config.txt` doesn't have yet (safe to run twice), then `sudo reboot`:
 
 ```
-dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4
-dtparam=spi=on
+dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4   # servos: hardware PWM on GPIO 12 and 13
+dtparam=spi=on                                      # LED eyes: SPI0 MOSI on GPIO 10
+dtparam=i2s=on                                      # INMP441 mic
+dtoverlay=adau7002-simple                           # INMP441 mic (if it's missing from `arecord -l`,
+                                                    # try googlevoicehat-soundcard instead)
 ```
 
-The mic adds `dtparam=i2s=on` and its overlay when audio is set up.
+Checks: `pinctrl get 12,13` shows `PWM0_CHAN0` and `PWM0_CHAN1`; `ls /dev/spidev0.0` exists;
+`arecord -l` lists the mic.
+
+## Start on boot
+
+`setup/carebot.service` and `setup/jbl-reconnect@.service` are systemd **user** services, so they
+can reach PipeWire audio (a system service usually can't, and CareBot would run silently). Install
+steps are at the top of each file.
 
 ## Power
 

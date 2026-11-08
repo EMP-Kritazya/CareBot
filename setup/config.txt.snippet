@@ -1,0 +1,6 @@
+# CareBot: add these lines at the end of /boot/firmware/config.txt (after [all]), then sudo reboot.
+# Owned by Hardware. Check: pinctrl get 12,13 (PWM0_CHAN0/1), ls /dev/spidev0.0, arecord -l (the mic).
+dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4
+dtparam=spi=on
+dtparam=i2s=on
+dtoverlay=adau7002-simple
