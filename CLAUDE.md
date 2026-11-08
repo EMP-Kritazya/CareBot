@@ -58,7 +58,8 @@ A laptop map shows it all. PLAN.md is the source of truth for stories, rules and
 Both machines are headless or remote. We work over SSH (`ssh <user>@carebot.local`).
 The live view is an MJPEG stream on port 8000 (`--headless`). It shows **skeletons on black** by
 default so the room never appears on the network; `--view camera` only while aiming the camera.
-Head follow pans only; tilt stays at the installed angle (falls are measured vertically) and the
+Head follow pans, and tilts only after 1.5 s off-center vertically (longer than a fall's drop window,
+so a fall is seen first; falls are measured vertically) and the
 head freezes during a possible fall, a check-in or an alert (`carebot/vision/follow.py`).
 
 ## Architecture

@@ -21,3 +21,7 @@ models/
 
 # Model weights (downloaded on first run)
 *.pt
+
+# Archives (models.zip is 103 MB: over GitHub's 100 MB limit) and macOS zip junk
+*.zip
+__MACOSX/

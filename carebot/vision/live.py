@@ -158,6 +158,11 @@ class LiveVision:
         if device:
             pose_cfg["device"] = device
         self.pose = YoloPoseSource(pose_cfg)
+        # Cap how often pose runs on a live camera (pose.max_fps; 0 = as fast as possible). On the Pi,
+        # pose at full speed keeps all four cores busy and overheats a Pi without a fan. The detectors
+        # measure over time windows, not frame counts, so a lower rate doesn't change what they detect.
+        self.max_fps = float(pose_cfg.get("max_fps") or 0)
+        self._next_step = 0.0
         print(f"Pose model: {pose_cfg.get('model', 'yolo11n-pose.pt')} at {pose_cfg.get('imgsz', 640)} px", flush=True)
         self.video = video
         self.cam = open_camera(video if video else camera, size, rotate)
@@ -222,6 +227,11 @@ class LiveVision:
 
     def step(self) -> Tick:
         cv2 = self.cv2
+        if self.max_fps > 0 and self.video is None:
+            now = time.monotonic()
+            if now < self._next_step:
+                time.sleep(self._next_step - now)
+            self._next_step = max(now, self._next_step) + 1.0 / self.max_fps
         try:
             image, ts = next(self.frames)
         except StopIteration:

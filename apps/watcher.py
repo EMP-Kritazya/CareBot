@@ -42,7 +42,7 @@ from carebot.escalate.facts import fact_sheet
 from carebot.escalate.notifier import ConsoleNotifier
 from carebot.hw import make_hardware
 from carebot.runtime import BUTTON, Runtime
-from carebot.vision.follow import Follower, target_point
+from carebot.vision.follow import Follower, head_top, target_point
 from carebot.vision.live import GREEN, RED, YELLOW, LiveVision, list_cameras
 from carebot.voice.listen import make_listener
 from carebot.voice.tts import make_tts
@@ -202,11 +202,21 @@ def main() -> None:
                         mirror=cam_cfg.get("mirror"),
                         headless=args.headless, view=args.view, http_port=http_port)
 
-    # Head follow: pan follows Sandy; tilt stays put (falls are measured vertically); freezes during
-    # a possible fall, a check-in or an alert. Off with mock hardware unless --follow (nothing moves).
+    # Head follow: pan follows Sandy; tilt (if enabled) only after tilt_dwell_s off-center vertically,
+    # longer than a fall's drop window, so a fall is seen before the head could tilt with it. Freezes
+    # during a possible fall, a check-in or an alert. Off with mock hardware unless --follow.
     follow_cfg = {**cfg.get("follow", {}), **({"fov_deg": cam_cfg["fov_deg"]} if "fov_deg" in cam_cfg else {})}
+    drop_window = float(cfg["detectors"].get("fall", {}).get("drop_window_s", 1.2))
+    if follow_cfg.get("tilt_enabled") and float(follow_cfg.get("tilt_dwell_s", 1.5)) <= drop_window:
+        print(f"follow.tilt_dwell_s must be longer than fall.drop_window_s ({drop_window:g} s); "
+              f"using {drop_window + 0.3:g} s so falls are seen first.", flush=True)
+        follow_cfg["tilt_dwell_s"] = drop_window + 0.3
     follow_on = follow_cfg.get("enabled", cfg["hardware"] == "pi") or args.follow
     follower = Follower.from_config(follow_cfg)
+    follow_log = open(follow_cfg["log"], "a", buffering=1) if follow_cfg.get("log") else None  # debugging
+    if follow_log:
+        print(f"Head follow log: {follow_cfg['log']}", flush=True)
+    follow_last_log = [0.0]
     settle_s = cfg.get("hw", {}).get("pantilt", {}).get("settle_ms", 250) / 1000
     last_tilt_move = [-1e9]
     if follow_on:
@@ -308,7 +318,16 @@ def main() -> None:
         falling = any(t.state in ("candidate", "confirmed") for t in vision.detectors.fall.tracks.values())
         frozen = runtime.state.mode != "MONITORING" or falling or vision.resident_posture(frame) == "lying"
         target = target_point(resident) if resident else None
-        cmd = follower.update(time.monotonic(), target, hw.pantilt.position(), frozen, mirrored=vision.mirror)
+        top = head_top(resident) if resident else None
+        now, pos = time.monotonic(), hw.pantilt.position()
+        cmd = follower.update(now, target, pos, frozen, mirrored=vision.mirror, top=top)
+        if follow_log and (cmd is not None or now - follow_last_log[0] >= 0.5):
+            follow_last_log[0] = now
+            seen = " ".join(f"#{p.track_id}@{t[0]:.2f},{t[1]:.2f}" for p in frame.people
+                            if (t := target_point(p)) is not None)
+            follow_log.write(f"{now:10.2f} mode={runtime.state.mode} frozen={frozen} resident={frame.resident_track_id} "
+                             f"people=[{seen}] target={None if target is None else tuple(round(v, 2) for v in target)} "
+                             f"top={None if top is None else round(top, 2)} pos=({pos[0]:.1f},{pos[1]:.1f}) cmd={cmd}\n")
         if cmd is None:
             return
         old_tilt = hw.pantilt.position()[1]

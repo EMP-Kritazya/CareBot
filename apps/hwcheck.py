@@ -1,6 +1,7 @@
 """Bench checker for the robot's hardware. Runs on the Pi, no network. Owned by Hardware.
 
-    python -m apps.hwcheck pantilt     # sweep both servos, then type commands to calibrate
+    python -m apps.hwcheck pantilt     # slow sweep over half the range, then type commands to calibrate
+    python -m apps.hwcheck pantilt --full   # sweep the whole limit_deg range (still slow)
     python -m apps.hwcheck camera      # grab frames, report size and fps, save /tmp/hwcheck.jpg
     python -m apps.hwcheck camera --live --size 1280x720   # live view in a browser, port 8000
     python -m apps.hwcheck button      # print each press for 15 s
@@ -28,8 +29,9 @@ HW_CONFIG = "config/hardware_pi.yaml"
 
 PANTILT_HELP = """
 Calibration commands, one per line (press Enter after each):
-  a PAN TILT     point to angles in degrees, e.g.  a 30 -10   (clamped to limit_deg)
-  p AXIS US      raw pulse width, e.g.  p pan 1000   (AXIS is pan or tilt; 500..2500 us)
+  a PAN TILT     glide to angles in degrees, e.g.  a 30 -10   (clamped to limit_deg)
+  p AXIS US      glide to a raw pulse width, e.g.  p pan 1000   (AXIS is pan or tilt; 500..2500 us)
+  Every move glides slowly (about 25 degrees a second); Ctrl+C stops it where it is.
   h              home
   q              quit (PWM stops, servos go limp)
 
@@ -55,39 +57,96 @@ def _load_driver(part: str, cfg: dict):
     return getattr(importlib.import_module(module_name), class_name)(cfg[part])
 
 
-def check_pantilt(cfg: dict, interactive: bool = True) -> bool:
+GLIDE_DEG_PER_S = 25.0   # gentle: the D625MW can do 400 deg/s, which slams the head into things
+GLIDE_HZ = 50.0          # one small step per PWM period
+
+
+def _glide(head, pan: float, tilt: float, deg_per_s: float = GLIDE_DEG_PER_S, start=None) -> None:
+    """Move to (pan, tilt) in small steps instead of one jump. `start`: where the head is, when the
+    driver doesn't know (after a raw pulse)."""
+    p0, t0 = start if start is not None else head.position()
+    dist = max(abs(pan - p0), abs(tilt - t0))
+    steps = max(1, int(dist / deg_per_s * GLIDE_HZ))
+    for i in range(1, steps + 1):
+        f = i / steps
+        head.point(p0 + (pan - p0) * f, t0 + (tilt - t0) * f)
+        time.sleep(1 / GLIDE_HZ)
+
+
+def check_pantilt(cfg: dict, interactive: bool = True, full: bool = False) -> bool:
     try:
         head = _load_driver("pantilt", cfg)
     except Exception as e:  # noqa: BLE001 - report any start-up failure as a FAIL
         return _result("pantilt", False, f"driver didn't start: {e}")
     try:
         pc = cfg["pantilt"]
-        lo_p, hi_p = pc["pan"]["limit_deg"]
-        lo_t, hi_t = pc["tilt"]["limit_deg"]
-        print("Sweeping. Watch that pan turns right for +, tilt goes up for +, and nothing hits.", flush=True)
+        share = 1.0 if full else 0.5  # half the range by default: enough to check direction, nothing hits
+        lo_p, hi_p = (v * share for v in pc["pan"]["limit_deg"])
+        lo_t, hi_t = (v * share for v in pc["tilt"]["limit_deg"])
         head.home()
         time.sleep(1.0)
-        for pan, tilt in [(hi_p, 0), (0, 0), (lo_p, 0), (0, 0), (0, hi_t), (0, 0), (0, lo_t), (0, 0)]:
-            head.point(pan, tilt)
-            print(f"  pan {pan:+6.1f}  tilt {tilt:+6.1f}   (reported {head.position()})", flush=True)
-            time.sleep(1.0)
-        head.point(lo_p / 2, 0)
+        if interactive:
+            try:
+                answer = input(f"Slow sweep: pan {lo_p:+.0f}..{hi_p:+.0f}, tilt {lo_t:+.0f}..{hi_t:+.0f} degrees "
+                               f"({'full' if full else 'half'} range). Enter = start, s = skip: ").strip().lower()
+            except EOFError:
+                answer = "s"
+            sweep = answer != "s"
+        else:
+            sweep = True
+        if sweep:
+            print("Sweeping slowly. Watch that pan turns right for +, tilt goes up for +, and nothing hits."
+                  " Ctrl+C stops.", flush=True)
+            try:
+                for pan, tilt in [(hi_p, 0), (0, 0), (lo_p, 0), (0, 0), (0, hi_t), (0, 0), (0, lo_t), (0, 0)]:
+                    _glide(head, pan, tilt)
+                    print(f"  pan {pan:+6.1f}  tilt {tilt:+6.1f}   (reported {head.position()})", flush=True)
+                    time.sleep(0.5)
+            except KeyboardInterrupt:
+                print("\n  sweep stopped; gliding home", flush=True)
+                _glide(head, *pc.get("home_deg", (0, 0)))
+        _glide(head, lo_p / 2, 0)
         moving = head.is_moving()  # must be True right after a move...
         time.sleep(pc.get("settle_ms", 250) / 1000 + 0.05)
         settled = not head.is_moving()  # ...and False once settle_ms has passed
-        head.home()
+        _glide(head, *pc.get("home_deg", (0, 0)))
         ok = _result("pantilt", moving and settled,
-                     f"sweep done; is_moving after a move = {moving}, after settle_ms = {not settled}")
+                     f"{'sweep done' if sweep else 'sweep skipped'}; is_moving after a move = {moving}, "
+                     f"after settle_ms = {not settled}")
 
         if interactive:
             print(PANTILT_HELP, flush=True)
-            _pantilt_console(head)
+            _pantilt_console(head, pc)
         return ok
     finally:
         head.close()
 
 
-def _pantilt_console(head) -> None:
+def _deg_from_us(axis_cfg: dict, us: float) -> float:
+    """Inverse of the driver's pulse_us: which angle a raw pulse corresponds to."""
+    direction = -1.0 if axis_cfg.get("invert", False) else 1.0
+    return (us - float(axis_cfg.get("center_us", 1500))) / float(axis_cfg.get("us_per_deg", 10.0)) * direction \
+        - float(axis_cfg.get("center_trim_deg", 0))
+
+
+def _pantilt_console(head, pc: dict) -> None:
+    # Raw pulses glide too, from the last pulse sent (the axis center after home).
+    last_us = {"pan": float(pc["pan"].get("center_us", 1500)), "tilt": float(pc["tilt"].get("center_us", 1500))}
+    us_per_s = GLIDE_DEG_PER_S * 10  # about 25 deg/s at 10 us per degree
+    raw_used = False  # after a raw pulse the driver's position is unknown: start glides from last_us
+
+    def here():
+        return (_deg_from_us(pc["pan"], last_us["pan"]), _deg_from_us(pc["tilt"], last_us["tilt"])) if raw_used else None
+
+    def remember(pos):
+        nonlocal raw_used
+        raw_used = False
+        for axis, deg in zip(("pan", "tilt"), pos):
+            a = pc[axis]
+            direction = -1.0 if a.get("invert", False) else 1.0
+            last_us[axis] = float(a.get("center_us", 1500)) + (deg + float(a.get("center_trim_deg", 0))) \
+                * float(a.get("us_per_deg", 10.0)) * direction
+
     while True:
         try:
             line = input("pantilt> ").strip().split()
@@ -101,17 +160,29 @@ def _pantilt_console(head) -> None:
             if cmd == "q":
                 return
             if cmd == "h":
-                head.home()
+                _glide(head, *pc.get("home_deg", (0, 0)), start=here())
+                remember(head.position())
+                print(f"  home: {head.position()}")
             elif cmd == "a" and len(args) == 2:
-                head.point(float(args[0]), float(args[1]))
+                _glide(head, float(args[0]), float(args[1]), start=here())
+                remember(head.position())
                 print(f"  now at {head.position()}")
             elif cmd == "p" and len(args) == 2 and args[0] in ("pan", "tilt"):
-                head.raw_pulse(args[0], float(args[1]))
-                print(f"  {args[0]} pulse {float(args[1]):.0f} us")
+                axis, target = args[0], float(args[1])
+                start = last_us[axis]
+                steps = max(1, int(abs(target - start) / us_per_s * GLIDE_HZ))
+                for i in range(1, steps + 1):
+                    head.raw_pulse(axis, start + (target - start) * i / steps)
+                    time.sleep(1 / GLIDE_HZ)
+                last_us[axis] = target
+                raw_used = True
+                print(f"  {axis} pulse {target:.0f} us")
             else:
                 print("  ? one command per line, starting with its letter, e.g.  a 30 -10   or   p pan 1500   or   h   or   q")
         except ValueError:
             print("  numbers please, e.g. a 30 -10")
+        except KeyboardInterrupt:
+            print("\n  stopped where it is")
 
 
 CAMERA_JPG = "/tmp/hwcheck.jpg"
@@ -387,6 +458,7 @@ def main() -> int:
     ap.add_argument("--live", action="store_true", help="camera: stream a live view on --port instead")
     ap.add_argument("--size", help="camera --live: resolution to ask for, e.g. 1280x720 (default: camera.size)")
     ap.add_argument("--port", type=int, default=8000, help="camera --live: HTTP port (default 8000)")
+    ap.add_argument("--full", action="store_true", help="pantilt: sweep the whole limit_deg range (default: half)")
     args = ap.parse_args()
     if not args.part and not args.all:
         ap.error("name a part (e.g. pantilt) or use --all")
@@ -407,6 +479,8 @@ def main() -> int:
     if args.part in NOT_WRITTEN_YET:
         print(f"SKIP  {args.part}: check not written yet")
         return 0
+    if args.part == "pantilt":
+        return 0 if check_pantilt(cfg, full=args.full) else 1
     return 0 if CHECKS[args.part](cfg) else 1
 
 

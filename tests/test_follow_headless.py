@@ -5,7 +5,7 @@ import urllib.request
 import pytest
 
 from carebot.vision.camera import parse_source
-from carebot.vision.follow import Follower, target_point
+from carebot.vision.follow import Follower, head_top, target_point
 from carebot.vision.synth import person
 
 
@@ -41,6 +41,75 @@ def test_frozen_never_moves():
 def test_tilt_stays_put_by_default_even_far_off():
     cmd = Follower().update(0.0, (0.9, 0.05), (0, 0), frozen=False)
     assert cmd[2] == 0
+
+
+def test_tilt_waits_longer_than_a_fall_before_following():
+    f = Follower(tilt_enabled=True, tilt_dwell_s=1.5, tilt_deadband=0.2)
+    assert f.update(0.0, (0.5, 0.9), (0, 0), frozen=False) is None   # just dropped low: wait
+    assert f.update(1.2, (0.5, 0.9), (0, 0), frozen=False) is None   # still inside a fall's window
+    cmd = f.update(1.6, (0.5, 0.9), (0, 0), frozen=False)            # stayed low (sat down): follow
+    assert cmd[0] == "point" and cmd[2] < 0 and cmd[1] == 0          # tilt down, pan untouched
+
+
+def test_tilt_up_and_step_limited():
+    f = Follower(tilt_enabled=True, tilt_dwell_s=1.0, tilt_max_step_deg=2)
+    f.update(0.0, (0.5, 0.0), (0, 0), frozen=False)
+    cmd = f.update(1.0, (0.5, 0.0), (0, 0), frozen=False)
+    assert cmd[2] == pytest.approx(2)                                 # he's high in the frame: tilt up, max 2 deg
+
+
+def test_a_fall_freezes_the_tilt_and_restarts_the_dwell():
+    f = Follower(tilt_enabled=True, tilt_dwell_s=1.5)
+    f.update(0.0, (0.5, 0.95), (0, 0), frozen=False)
+    assert f.update(1.0, (0.5, 0.95), (0, 0), frozen=True) is None    # fall candidate: frozen
+    assert f.update(2.0, (0.5, 0.95), (0, 0), frozen=False) is None   # unfrozen: the dwell starts over
+    assert f.update(3.6, (0.5, 0.95), (0, 0), frozen=False)[2] < 0
+
+
+def test_back_near_center_resets_the_dwell():
+    f = Follower(tilt_enabled=True, tilt_dwell_s=1.5, tilt_deadband=0.2)
+    f.update(0.0, (0.5, 0.9), (0, 0), frozen=False)
+    f.update(1.0, (0.5, 0.5), (0, 0), frozen=False)                   # stood back up
+    assert f.update(1.6, (0.5, 0.9), (0, 0), frozen=False) is None    # low again: new dwell
+
+
+def test_tilt_settings_come_from_config():
+    f = Follower.from_config({"tilt_enabled": True, "tilt_dwell_s": 2.0, "tilt_max_step_deg": 1.5})
+    assert f.tilt_enabled and f.tilt_dwell_s == 2.0 and f.tilt_max_step_deg == 1.5
+
+
+def test_tilts_up_quickly_when_his_head_nears_the_top():
+    f = Follower(tilt_enabled=True, tilt_up_dwell_s=0.4, tilt_headroom=0.1)
+    # torso near the middle (no tilt from that), but his head is at the top edge: tilt up soon
+    assert f.update(0.0, (0.5, 0.4), (0, 0), frozen=False, top=0.03) is None
+    cmd = f.update(0.5, (0.5, 0.4), (0, 0), frozen=False, top=0.03)
+    assert cmd == ("point", 0, 2.0)
+
+
+def test_head_room_is_fine_no_tilt():
+    f = Follower(tilt_enabled=True)
+    f.update(0.0, (0.5, 0.45), (0, 0), frozen=False, top=0.2)
+    assert f.update(1.0, (0.5, 0.45), (0, 0), frozen=False, top=0.2) is None
+
+
+def test_tilting_up_never_waits_for_the_fall_window_but_down_does():
+    f = Follower(tilt_enabled=True, tilt_dwell_s=1.5, tilt_up_dwell_s=0.4)
+    f.update(0.0, (0.5, 0.9), (0, 0), frozen=False, top=0.6)
+    assert f.update(0.5, (0.5, 0.9), (0, 0), frozen=False, top=0.6) is None   # low: still waiting
+
+
+def test_head_top_from_head_shoulders_or_hips():
+    p = person(1, (0.5, 0.6))
+    assert 0 < head_top(p) < 0.6
+    k = list(p.keypoints)
+    for i in range(5):                       # head hidden: just above the shoulders
+        k[i] = (k[i][0], k[i][1], 0.1)
+    p2 = type(p)(p.track_id, tuple(k))
+    assert head_top(p2) == pytest.approx(max(0.0, min(k[5][1], k[6][1]) - 0.08))
+    for i in (5, 6):                         # shoulders hidden too, hips high: head is above the frame
+        k[i] = (k[i][0], k[i][1], 0.1)
+    k[11], k[12] = (0.5, 0.3, 0.9), (0.52, 0.3, 0.9)
+    assert head_top(type(p)(p.track_id, tuple(k))) == 0.0
 
 
 def test_goes_home_after_losing_him():

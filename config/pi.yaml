@@ -58,11 +58,18 @@ follow:                     # head follow (pan only by default; tilt stays where
   max_step_deg: 4
   rate_hz: 8
   home_after_s: 3           # out of view this long: head goes home and waits
-  tilt_enabled: false       # tilting would corrupt the vertical measurements falls rely on
+  tilt_enabled: true        # tilts only after he's been off-center vertically for tilt_dwell_s
+  tilt_deadband: 0.2        # no tilt while he's within this far of the center (fraction of frame height)
+  tilt_dwell_s: 1.5         # must stay longer than fall.drop_window_s (1.2), so a fall is seen first
+  tilt_max_step_deg: 2      # smaller steps than pan
+  tilt_up_dwell_s: 0.4      # head near the top edge this long: tilt up (rising can't hide a fall)
+  tilt_headroom: 0.10       # keep the top of his head this far below the top edge (fraction of height)
+  log: /tmp/carebot-follow.log   # debugging: every head move and why. Remove when tuned.
 
 pose:                       # on the Pi: NCNN (fast on ARM). Pick the size with `python -m apps.bench_pose`.
   model: models/yolo11n-pose_416_ncnn_model   # exported with `python -m apps.bench_pose --export`; copy models/ to the Pi
   imgsz: 416                # must match the exported model (640 / 416 / 320)
+  max_fps: 5                # cap pose runs per second: a Pi 5 without a fan overheats (86 C at full speed, 83 C at 8)
 
 twilio:
   family: text              # text | call | both: how Suyog is told (text = by `texts` below)

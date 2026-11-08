@@ -189,7 +189,8 @@ Then type **`e`**, **`a`** + Enter and stand where Sandy usually is, to add samp
 ```
 Walk slowly left and right across the room.
 
-**Check:** the head pans to keep you in frame without twitching, and the tilt doesn't move. When you
+**Check:** the head pans to keep you in frame without twitching, and it tilts only after you've
+stayed high or low in the picture for about 1.5 s (sit down: it tilts down a moment later). When you
 leave the room, it goes home after about 3 s.
 **Tune (`config/pi.yaml`):**
 - `follow.deadband`: raise it if the head twitches.
