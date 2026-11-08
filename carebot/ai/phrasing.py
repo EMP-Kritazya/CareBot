@@ -1,6 +1,6 @@
-"""Warmer speech: Gemini rewrites CareBot's template lines, and code checks every rewrite.
+"""Warmer speech: Claude rewrites CareBot's template lines, and code checks every rewrite.
 
-The state machine picks the line (what may be said). Gemini only changes how it sounds. A rewrite
+The state machine picks the line (what may be said). Claude only changes how it sounds. A rewrite
 is spoken only if `check_line` passes: same names, same cues, no new numbers, no new promises, no
 medical words, no false comfort. Otherwise the template is spoken, word for word.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import threading
 
-from carebot.ai.gemini import safe_generate
+from carebot.ai.llm import safe_generate
 
 SYSTEM = """You rewrite lines for CareBot, a small home robot that checks on an older man who lives alone.
 Make the line sound like a calm, kind person speaking slowly and clearly to an 81-year-old.
@@ -78,7 +78,7 @@ def check_line(template: str, rewrite: str, names: tuple[str, ...] = (), heard: 
 
 
 class Phraser:
-    """Rewrites lines with Gemini, checks them, caches the good ones."""
+    """Rewrites lines with Claude, checks them, caches the good ones."""
 
     def __init__(self, ai, names: tuple[str, ...], enabled: bool = True) -> None:
         self.ai = ai
@@ -89,7 +89,7 @@ class Phraser:
         self._lock = threading.Lock()
 
     def polish(self, text: str, heard: str = "") -> tuple[str, bool]:
-        """(line to speak, True if Gemini's rewrite is used)."""
+        """(line to speak, True if Claude's rewrite is used)."""
         if not self.enabled or not text:
             return text, False
         if not heard:
@@ -99,7 +99,7 @@ class Phraser:
         prompt = f"Original line: {text}"
         if heard:
             prompt = f"The person said: {heard}\n{prompt}"
-        out = safe_generate(self.ai, REPLY_SYSTEM if heard else SYSTEM, prompt, SCHEMA, temperature=0.6)
+        out = safe_generate(self.ai, REPLY_SYSTEM if heard else SYSTEM, prompt, SCHEMA, max_tokens=1500)
         line = (out or {}).get("line", "").strip().strip('"') if isinstance(out, dict) else ""
         if not check_line(text, line, self.names, heard):
             if line:

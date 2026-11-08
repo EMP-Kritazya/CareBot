@@ -1,17 +1,17 @@
-"""Understanding what people say: Gemini first, keyword rules as the safety net and the fallback.
+"""Understanding what people say: Claude first, keyword rules as the safety net and the fallback.
 
 Safety rules live in code, not in the prompt:
-- if the keyword rules hear "help", it's help, whatever Gemini thinks;
+- if the keyword rules hear "help", it's help, whatever Claude thinks;
 - any mention of pain, injury, dizziness or not being able to get up is help (a false alarm costs
   less than a missed one);
-- if Gemini is off, slow or confused, the keyword result is used.
+- if Claude is off, slow or confused, the keyword result is used.
 """
 
 from __future__ import annotations
 
 import re
 
-from carebot.ai.gemini import safe_generate
+from carebot.ai.llm import safe_generate
 from carebot.voice.keywords import check_in_intent, report_status_by_keywords
 
 SYMPTOMS = re.compile(r"\b(pain|painful|hurt|hurts|hurting|ache|aching|dizzy|dizziness|faint|fainted|bleed|"
@@ -48,7 +48,7 @@ class Understander:
     def __init__(self, ai, enabled: bool = True) -> None:
         self.ai = ai
         self.enabled = enabled and getattr(ai, "enabled", False)
-        self.last_source = "keywords"  # "gemini" or "keywords", for narration
+        self.last_source = "keywords"  # "claude" or "keywords", for narration
 
     def check_in(self, text: str) -> str:
         """ok | help | unclear for an answer to "Are you OK?"."""
@@ -58,10 +58,10 @@ class Understander:
             return "help"  # safety net: never let a model talk us out of "help"
         if not self.enabled:
             return keyword
-        out = safe_generate(self.ai, CHECK_IN_SYSTEM, f"His answer: {text}", CHECK_IN_SCHEMA, temperature=0)
+        out = safe_generate(self.ai, CHECK_IN_SYSTEM, f"His answer: {text}", CHECK_IN_SCHEMA, max_tokens=1000)
         if not isinstance(out, dict) or out.get("intent") not in ("ok", "help", "unclear"):
             return keyword
-        self.last_source = "gemini"
+        self.last_source = "claude"
         if (out.get("concern") or "").strip():
             return "help"
         return out["intent"]
@@ -72,11 +72,11 @@ class Understander:
         self.last_source = "keywords"
         if not self.enabled:
             return keyword
-        out = safe_generate(self.ai, REPORT_SYSTEM, f"Their answer: {text}", REPORT_SCHEMA, temperature=0)
+        out = safe_generate(self.ai, REPORT_SYSTEM, f"Their answer: {text}", REPORT_SCHEMA, max_tokens=1000)
         status = out.get("status") if isinstance(out, dict) else None
         if status not in REPORT_SCHEMA["properties"]["status"]["enum"]:
             return keyword
-        self.last_source = "gemini"
+        self.last_source = "claude"
         if keyword == "hospital" and status != "hospital":
             return keyword  # an explicit "hospital" is never downgraded
         return status

@@ -31,7 +31,7 @@ def main() -> None:
     import cv2
 
     cfg = load_config(args.config)
-    name = args.name or cfg.get("profile", {}).get("resident_name", "Ruth")
+    name = args.name or cfg.get("profile", {}).get("resident_name", "Sandy")
     matcher = FaceMatcher({**cfg["detectors"].get("identity", {}), "name": name})
     mode = "add" if args.add and matcher.ready else "new"
     if args.add and not matcher.ready:

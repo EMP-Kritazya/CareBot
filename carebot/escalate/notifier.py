@@ -21,8 +21,19 @@ def clock(ts: float) -> str:
     return dt.datetime.fromtimestamp(ts).strftime("%-I:%M %p")
 
 
-def alert_texts(profile: dict, event: str, who: str, ts: float) -> dict[str, str]:
-    """The first messages for each audience. Facts only."""
+def contacted_line(contacted: tuple[str, ...]) -> str:
+    """Who has been reached, for the family's message. Only what actually happened."""
+    who = [w for w in ("neighbors", "911") if w in contacted]
+    if not who:
+        return "CareBot is still trying to reach help."
+    names = " and ".join("Neighbors" if w == "neighbors" else "911" for w in who)
+    return f"{names} {'have' if len(who) > 1 or who == ['neighbors'] else 'has'} been contacted."
+
+
+def alert_texts(profile: dict, event: str, who: str, ts: float,
+                contacted: tuple[str, ...] = ("neighbors", "911")) -> dict[str, str]:
+    """The first messages for each audience. Facts only. `contacted`: who was actually reached
+    before the family hears about it."""
     name = profile.get("resident_name", "Sandy")
     where = profile.get("address", "their home")
     person = name if who == "resident" else f"someone at {name}'s home"
@@ -31,7 +42,7 @@ def alert_texts(profile: dict, event: str, who: str, ts: float) -> dict[str, str
     base = f"CareBot {clock(ts)}: {person} {what} and didn't answer CareBot's check-in."
     return {
         "neighbors": f"{base} {where}. Reply YES if you can go now, NO if you can't.",
-        "family": f"{base} Neighbors and 911 have been contacted. {where}.",
+        "family": f"{base} {contacted_line(contacted)} {where}.",
         "911": f"{base} {where}. {profile.get('access_note', '')}".strip(),
     }
 

@@ -1,6 +1,6 @@
-"""Play the four user stories through the real state machine, narrated in the terminal.
+"""Play the user stories through the real state machine, narrated in the terminal.
 
-    python -m apps.simulate            # all four
+    python -m apps.simulate            # all of them
     python -m apps.simulate --story 1  # just one
 
 No hardware, no network. The same decision code the robot runs; actions are printed, not executed.
@@ -15,8 +15,8 @@ from carebot.config import load_config
 from carebot.core import state as st
 from carebot.core.scenario import Scenario
 from carebot.core.script import Profile
+from carebot.core.narrate import BOLD, DIM, RESET, describe
 
-DIM, BOLD, RED, GREEN, YELLOW, CYAN, RESET = "\033[2m", "\033[1m", "\033[31m", "\033[32m", "\033[33m", "\033[36m", "\033[0m"
 
 
 class Narrator:
@@ -37,70 +37,39 @@ class Narrator:
                 print(f"{DIM}{self.clock(t):>11}{RESET}    {line}")
 
 
-def describe(a) -> str | None:
-    if isinstance(a, st.Ask):
-        how = "asks loudly" if a.loud else "asks"
-        listen = "listens for a full answer" if a.listen == "transcript" else "listens 15 s"
-        return f'{CYAN}CareBot {how}:{RESET} "{a.text}"  {DIM}({listen}){RESET}'
-    if isinstance(a, st.Say):
-        return f'{CYAN}CareBot says:{RESET} "{a.text}"'
-    if isinstance(a, st.SetEyes):
-        color = {"alerted": RED, "help_coming": GREEN, "checking": YELLOW}.get(a.state, CYAN)
-        return f"{DIM}eyes ->{RESET} {color}{a.state}{RESET}"
-    if isinstance(a, st.Chirp):
-        return f"{DIM}buzzer: chirp{RESET}"
-    if isinstance(a, st.StartAlarm):
-        return f"{RED}buzzer: ALARM until the button is pressed{RESET}"
-    if isinstance(a, st.StopAlarm):
-        return None  # noisy; the stop is implied by what follows
-    if isinstance(a, st.Escalate):
-        who = "3 nearest neighbors + Priya + 911" if a.include_neighbors else "Priya + 911 (someone is already with her)"
-        return f"{RED}{BOLD}ESCALATE ->{RESET} {who}"
-    if isinstance(a, (st.PauseEscalation, st.ResumeEscalation)):
-        return f"{DIM}escalation {'paused' if isinstance(a, st.PauseEscalation) else 'resumed'}{RESET}"
-    if isinstance(a, st.SendUpdate):
-        return f'{YELLOW}UPDATE to Priya + 911 ->{RESET} [{a.status}] someone at the device said: "{a.quote}"'
-    if isinstance(a, st.Publish):
-        p = a.payload
-        return f"{DIM}map <- {p['type']}" + (f" {p.get('status') or p.get('mode') or p.get('outcome') or p.get('event', '')}") + RESET
-    if isinstance(a, st.LogLocal):
-        return f"{DIM}logged on the robot only: {a.kind} ({a.detail}). Nothing sent.{RESET}"
-    return None
-
-
 def story_1(n: Narrator, s: Scenario) -> None:
-    n.scene(s, "Ruth gets up in the night and falls by the bed. She stays down.")
+    n.scene(s, "Sandy gets up in the night and falls by the bed. He stays down.")
     s.fall()
     s.wait(15)
     n.scene(s, "...silence.")
     s.silence(0)
     n.scene(s.wait(15), "...silence again.")
     s.silence(0)
-    n.scene(s.wait(2), "Twilio confirms: texts to 3 neighbors sent, Priya called, 911 called.")
+    n.scene(s.wait(2), "Twilio confirms: texts to 3 neighbors sent, Suyog called, 911 called.")
     s.sent()
-    n.scene(s.wait(35), 'Daniel replies "YES" to the text.')
-    s.neighbor("Daniel", "yes", street="115th Street")
-    n.scene(s.wait(150), "Daniel arrives and presses the button. Ruth is still lying on the floor.")
+    n.scene(s.wait(35), 'Krit replies "YES" to the text.')
+    s.neighbor("Krit", "yes", street="115th Street")
+    n.scene(s.wait(150), "Krit arrives and presses the button. Sandy is still lying on the floor.")
     s.press("lying")
-    n.scene(s.wait(4), "Daniel: \"I'm her neighbor, we're taking her to the hospital now.\"")
-    s.speak("I'm her neighbor, we're taking her to the hospital now.")
+    n.scene(s.wait(4), "Krit: \"I'm his neighbor, we're taking him to the hospital now.\"")
+    s.speak("I'm his neighbor, we're taking him to the hospital now.")
 
 
 def story_2(n: Narrator, s: Scenario) -> None:
-    n.scene(s, "Ruth's grandson naps on the couch for 5 minutes. He isn't the resident: no stillness timer.")
+    n.scene(s, "Sandy's grandson naps on the couch for 5 minutes. He isn't the resident: no stillness timer.")
     s.wait(300)
-    n.scene(s, "Ruth sits down hard on the floor to pick something up.")
+    n.scene(s, "Sandy sits down hard on the floor to pick something up.")
     s.fall()
-    n.scene(s.wait(3), "Ruth presses the button.")
+    n.scene(s.wait(3), "Sandy presses the button.")
     s.press("sitting")
-    n.scene(s.wait(2), 'Ruth: "I\'m OK."')
+    n.scene(s.wait(2), 'Sandy: "I\'m OK."')
     s.speak("I'm OK")
 
 
 def story_3(n: Narrator, s: Scenario) -> None:
-    n.scene(s, "Ruth slumps in her armchair and doesn't move for 30 seconds.")
+    n.scene(s, "Sandy slumps over in his armchair and doesn't move for a minute.")
     s.stillness()
-    n.scene(s.wait(4), 'Ruth, weakly: "help."')
+    n.scene(s.wait(4), 'Sandy, weakly: "help."')
     s.speak("help")
     n.scene(s.wait(2), "Twilio confirms all sends.")
     s.sent()
@@ -113,11 +82,38 @@ def story_4(n: Narrator, s: Scenario) -> None:
     s.speak("I'm OK, I'm OK")
 
 
+def story_5(n: Narrator, s: Scenario) -> None:
+    n.scene(s, "Sandy falls by the kitchen counter and stays down.")
+    s.send(st.Detected("fall", "resident", s.t, track_id=1))
+    n.scene(s.wait(6), "Sandy gets back up on his own (the camera sees him standing).")
+    s.send(st.GotUp(s.t, track_id=1))
+    n.scene(s.wait(15), "...he walks off to the bathroom without answering.")
+    s.silence(0)
+    n.scene(s.wait(15), "...still no answer.")
+    s.silence(0)
+    n.scene(s.wait(2), "Twilio confirms: Suyog's text was sent.")
+    s.sent(channels=("family",))
+
+
+def story_6(n: Narrator, s: Scenario) -> None:
+    n.scene(s, "Sandy falls and doesn't answer. CareBot alerts everyone.")
+    s.fall()
+    s.silence(15)
+    s.silence(15)
+    s.sent()
+    n.scene(s.wait(30), 'Krit replies "YES".')
+    s.neighbor("Krit", "yes", street="115th Street")
+    n.scene(s.wait(40), "Sandy manages to get up before Krit arrives.")
+    s.send(st.GotUp(s.t))
+
+
 STORIES = {
     1: ("The 2am fall, no answer", "2:07", story_1),
     2: ("Grandson visits, false alarm", "16:30", story_2),
     3: ("Slumped in the chair", "15:15", story_3),
     4: ("The visitor falls", "16:45", story_4),
+    5: ("Sandy gets up on his own (during the check-in)", "10:20", story_5),
+    6: ("Sandy gets up on his own (after the alert)", "2:40", story_6),
 }
 
 

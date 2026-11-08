@@ -82,18 +82,14 @@ def onscene(p: Profile, who: str, resident_posture: str, n: int) -> str:
 
 
 def getting_help(p: Profile, channels: tuple[str, ...]) -> str:
-    """Said only after the sends succeed, naming only the channels that actually worked."""
-    texted = "neighbors" in channels
-    called = [x for x in (p.family_name if "family" in channels else None,
-                          "911" if "911" in channels else None) if x]
-    if not texted and not called:
+    """Said only after the sends succeed, naming only who was actually reached. "Contacted" stays
+    true whether a person got a call or a text."""
+    who = [x for x, key in (("your neighbors", "neighbors"), (p.family_name, "family"), ("911", "911"))
+           if key in channels]
+    if not who:
         return "I couldn't reach anyone yet. I'm still trying."
-    parts = []
-    if texted:
-        parts.append("texted your neighbors")
-    if called:
-        parts.append("called " + " and ".join(called))
-    return "I'm getting help. I've " + " and ".join(parts) + "."
+    listed = who[0] if len(who) == 1 else ", ".join(who[:-1]) + " and " + who[-1]
+    return f"I'm getting help. I've contacted {listed}."
 
 
 def helper_coming(name: str, street: str | None) -> str:

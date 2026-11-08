@@ -4,9 +4,9 @@ A newer Ask supersedes an older one: if the button is pressed mid-question, Care
 for the old answer and asks the new question. Answers carry the ask_id they belong to, and the state
 machine ignores stale ones anyway.
 
-With Gemini on (carebot/ai):
+With Claude on (carebot/ai):
 - each line is polished before it's spoken, and only if the rewrite passes the guardrail;
-- answers are heard as whole sentences (Vosk transcript) and understood by Gemini, with the keyword
+- answers are heard as whole sentences (Vosk transcript) and understood by Claude, with the keyword
   rules as the safety net.
 Without it, lines are spoken word for word and answers are matched by keywords.
 """
@@ -66,7 +66,7 @@ class VoiceWorker(threading.Thread):
     def _speak(self, text: str, loud: bool = False, heard: str = "") -> None:
         line, polished = (self.phraser.polish(text, heard) if self.phraser else (text, False))
         if self.verbose or polished:
-            print(f"{DIM}    speaking ({'Gemini' if polished else 'template'}): {line}{RESET}", flush=True)
+            print(f"{DIM}    speaking ({'Claude' if polished else 'template'}): {line}{RESET}", flush=True)
         self.tts.say(line, loud=loud)
 
     def _ask(self, a: st.Ask) -> None:

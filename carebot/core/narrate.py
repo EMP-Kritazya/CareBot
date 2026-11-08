@@ -31,11 +31,11 @@ def describe(a) -> str | None:
     if isinstance(a, (st.PauseEscalation, st.ResumeEscalation)):
         return f"{DIM}escalation {'paused' if isinstance(a, st.PauseEscalation) else 'resumed'}{RESET}"
     if isinstance(a, st.SendUpdate) and a.source == "camera":
-        return f"{YELLOW}UPDATE to Suyog + 911 ->{RESET} [{a.status}] the camera saw him get back up (no 'I'm OK' yet)"
+        return f"{YELLOW}UPDATE ->{RESET} [{a.status}] the camera saw him get back up (no 'I'm OK' yet)"
     if isinstance(a, st.SendUpdate) and a.source == "resident":
-        return f'{YELLOW}UPDATE to Suyog + 911 ->{RESET} [{a.status}] he said: "{a.quote}"'
+        return f'{YELLOW}UPDATE ->{RESET} [{a.status}] he said: "{a.quote}"'
     if isinstance(a, st.SendUpdate):
-        return f'{YELLOW}UPDATE to Suyog + 911 ->{RESET} [{a.status}] someone at the device said: "{a.quote}"'
+        return f'{YELLOW}UPDATE ->{RESET} [{a.status}] someone at the device said: "{a.quote}"'
     if isinstance(a, st.Publish):
         p = a.payload
         return f"{DIM}map <- {p['type']}" + (f" {p.get('status') or p.get('mode') or p.get('outcome') or p.get('event', '')}") + RESET
