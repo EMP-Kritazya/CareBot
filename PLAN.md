@@ -12,7 +12,7 @@ MakeCU 24-hour robotics hackathon, Healthcare track. Judged on a 3-minute Devpos
 
 **The map.** A laptop dashboard on a real street map of Morningside Heights. It shows Sandy's home, the neighbors around him who agreed to help, who was contacted, who said yes, their walking route, the live incident timeline, and a manual "Trigger alert" button.
 
-**The change moment.** Silence after two check-ins. In the same second the robot starts beeping, the three nearest neighbors (by walking time) get a text, Sandy's son Suyog gets a call, and the 911 agent places its call. A neighbor replies YES and their route lights up on the map. They arrive and press the button. The robot sees Sandy is still on the floor, so it asks who they are and what's happening. "I'm his neighbor, we're taking him to the hospital now." 911 and Suyog get that sentence, word for word.
+**The change moment.** Silence after two check-ins. In the same second the robot starts beeping, the three nearest neighbors (by walking time) get a call, Sandy's son Suyog gets a WhatsApp text, and the 911 agent places its call. A neighbor presses 1 (YES) and their route lights up on the map. They arrive and press the button. The robot sees Sandy is still on the floor, so it asks who they are and what's happening. "I'm his neighbor, we're taking him to the hospital now." 911 and Suyog get that sentence, word for word.
 
 **Honesty rule.** The 911 agent states only facts from a fact sheet that code builds: what the camera saw, what was heard, who was contacted. Claude may rephrase those facts but never add to them, and code checks every answer before it's spoken. For anything else it says "I don't know."
 
@@ -26,13 +26,13 @@ MakeCU 24-hour robotics hackathon, Healthcare track. Judged on a 3-minute Devpos
 
 **Field-of-view rule.** CareBot acts only on what it sees happen. Sandy being out of view is not an emergency.
 
-**Proof standard.** Recall and false check-ins per hour on labeled clips, face-lock ID switches, fall-to-alert latency, and a 911 red-team with zero unsupported claims.
+**Proof standard.** Every user story runs as an end-to-end test, the detectors are tested on synthetic skeletons, and the 911 red-team finds zero unsupported claims.
 
 **Core line.** "Tom's phone was on the table, just out of reach. His neighbor had a key. For five days, nothing told anyone he had fallen."
 
 ## The problem
 
-**Tom Notti, 91, Cloverdale, California.** Tom was widowed in 2015 and lived alone in a retirement community. He used a walker and an electric scooter, and he still drove. In February 2023 he fell in his living room and couldn't get up. His phone was on a table, out of reach; he tried to get to it to call a neighbor, and its battery died. He lay on the floor for about five days. His pill box showed his last dose five days earlier. His next-door neighbor kept a key to his house "just because he lives alone, and there's no one taking care of him." A Meals on Wheels driver heard that he'd gone quiet, walked around to the back of his house and saw him through the rear window. He died in hospital a week later.
+**Tom Notti, 92, Cloverdale, California.** Tom was widowed in 2015 and lived alone in a retirement community. He used a walker and an electric scooter, and he still drove. In February 2023 he fell in his living room and couldn't get up. His phone was on a table, out of reach; he tried to get to it to call a neighbor, and its battery died. He lay on the floor for about five days. His pill box showed his last dose five days earlier. His next-door neighbor kept a key to his house "just because he lives alone, and there's no one taking care of him." A Meals on Wheels driver heard that he'd gone quiet, walked around to the back of his house and saw him through the rear window. He died in hospital a week later.
 
 > "It's just sad, because the whole thing was preventable, and he was just a really nice man." The Meals on Wheels driver who found him
 >
@@ -68,10 +68,10 @@ Sandy, 81, lives alone in apartment 4A on West 115th Street. He gets up in the n
 
 1. The head stops moving, and the fall is confirmed. The eyes turn amber, there's a short chirp, and CareBot says: "Sandy, I saw you fall. Are you OK? Say 'I'm OK' or 'help'."
 2. 15 seconds of silence. A louder second ask. Silence again.
-3. ALERTED: the eyes turn red and the robot beeps continuously. At the same moment, the nearest neighbors get a call (press 1 if you can go), Suyog gets a call, and the 911 agent calls with the briefing. Sandy hears: "I'm getting help. I've contacted your neighbors, Suyog and 911."
-4. Krit, a neighbor on 115th Street, replies YES. His walking route draws on the map, and Sandy hears: "Krit from 115th Street is on his way."
+3. ALERTED: the eyes turn red and the robot beeps continuously. At the same moment, the nearest neighbors get a call (press 1 if you can go), Suyog gets a WhatsApp text, and the 911 agent calls with the briefing. Sandy hears: "I'm getting help. I've contacted your neighbors, Suyog and 911."
+4. Krit, a neighbor on 115th Street, presses 1 (YES). His walking route draws on the map, and Sandy hears: "Krit from 115th Street is on his way."
 5. Krit arrives and presses the button. Sandy's tracked body is still lying down, so CareBot knows someone else pressed it: "Hello, I see Sandy is still on the floor. Who are you, and what's happening?"
-6. "I'm his neighbor, we're taking him to the hospital now." 911 and Suyog get a text with that quote. The map shows "with him," then "hospital," and the incident closes.
+6. "I'm his neighbor, we're taking him to the hospital now." Suyog gets that quote as a text, and 911 hears it on the open call. The map shows "with him," then "hospital," and the incident closes.
 
 **Acceptance:**
 
@@ -153,11 +153,11 @@ The robot has one physical button.
     - The full transcript goes to Claude, which only sorts it into one of `hospital`, `ambulance_here`, `with_resident`, `resident_ok` or `unclear` (keyword rules as the fallback; an explicit "hospital" is never downgraded).
     - Update texts are templated around the verbatim quote: "Update 2:15: someone at the device said: 'I'm his neighbor, we're taking him to the hospital now.' The device can't confirm who they are."
     - If the reply is `unclear`, CareBot asks once more, then sends the quote as it is.
-- **SMS replies** (YES, NO, WITH, HOSP, OK) from neighbors or family update the same statuses.
+- **Neighbors answer their call** by pressing 1 (yes, I can go) or 2 (no).
 
 ## The map
 
-- **Stack.** A FastAPI and WebSocket server on the laptop serves one page built on Leaflet 1.9.4 with OpenStreetMap tiles. The server subscribes to the robot's MQTT broker (Mosquitto on the Pi 5).
+- **Stack.** A FastAPI and WebSocket server on the laptop serves one page built on Leaflet 1.9.4 with OpenStreetMap / CARTO tiles. The server subscribes to the robot's MQTT broker (Mosquitto on the Pi 5).
 - **What it shows:**
   - Sandy's home, at block level, near Columbia in Morningside Heights.
   - 8 to 12 neighbors who agreed to help (receivers), with fictional names on real blocks and never at a real resident's exact address.
@@ -167,11 +167,11 @@ The robot has one physical button.
   - The walking route of whoever said YES.
   - The status of Suyog's call and the 911 call.
 - **Trigger alert button.** It publishes `carebot/robot-4A/cmd {"type":"trigger"}`, and the robot runs the exact fall pipeline with event `manual`: a chirp and the asks, then beeping until the button is pressed, then escalation. It's also our demo backup. The briefing says "triggered manually."
-- **Receivers.** The list lives in `config/receivers.yaml`, one entry per neighbor: `{id, name, lat, lng, phone, channel: sms|sim, note}`. Two entries are teammates' real phones, which get real Twilio texts. The rest are simulated by the dashboard server (replying yes after N seconds, no, or nothing), so the map looks alive.
+- **Receivers.** The list lives in `config/receivers.yaml`, one entry per neighbor: `{id, name, lat, lng, channel: call|sim, phone_env, note}`. Phone numbers never go in that file; a real receiver names the `.env` variable that holds the number. Two entries are teammates' real phones, which get real Twilio calls (press 1 or 2). The rest are simulated by the dashboard server (replying yes after N seconds, no, or nothing), so the map looks alive.
 - **Ranking.** Neighbors are ranked nearest first by walking time.
-  - `apps/build_routes.py` precomputes the routes and times once, using foot routing from the FOSSGIS OSRM server or OSMnx on a cached graph, and saves them to `data/routes.json`. Straight-line distance is the fallback, and nothing calls a routing service during the demo.
-  - CareBot texts the nearest 3. If nobody says YES within 90 s, it texts the next 3.
-  - After the first YES, the others get "Thanks, someone is on the way."
+  - `apps/build_routes.py` precomputes the routes and times once, using foot routing from the FOSSGIS OSRM server, and saves them to `data/routes.json`. Straight-line distance is the fallback, and nothing calls a routing service during the demo.
+  - CareBot calls the nearest 3. If nobody says YES within 90 s (25 s in demo mode), it calls the next 3.
+  - After the first YES, everyone else still waiting is stood down.
 
 ## What CareBot may say
 
@@ -223,7 +223,7 @@ Code enforces these tables; the prompt alone doesn't.
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Brain    | Raspberry Pi 5 (4GB). The Pi 4 is a spare.                                                                                                                                                                                                                                                                                                  |
 | Camera   | Logitech USB webcam on the pan-tilt head (OpenCV / V4L2, MJPG 720p). Video never touches a network. There is no AI Camera. Laptop testing uses the laptop's webcam.                                                                                                                                                                         |
-| Pan-tilt | Two Hitec D625MW servos (own 6 V battery, shared ground): pan on GPIO 12, tilt on GPIO 13. They use the Pi 5's hardware PWM (`dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4`, with `rpi-hardware-pwm`; check `/sys/class/pwm` for the chip number). They run off a separate 5 V supply that shares a common ground. There's no PCA9685. |
+| Pan-tilt | Two Hitec D625MW servos (own 6 V battery, shared ground): pan on GPIO 12, tilt on GPIO 13. They use the Pi 5's hardware PWM (`dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4`, with `rpi-hardware-pwm`; check `/sys/class/pwm` for the chip number). There's no PCA9685.                                                   |
 | LED eyes | A NeoPixel arc on SPI MOSI (GPIO 10), driven by `adafruit-circuitpython-neopixel-spi`, through a 74AHCT125 level shifter. The rpi_ws281x library doesn't run on the Pi 5. Blue = watching, amber = checking in, red = alerted, green = a person is on the way or with him.                                                                  |
 | Buzzer   | GPIO 17                                                                                                                                                                                                                                                                                                                                     |
 | Button   | GPIO 27, through gpiozero with debounce                                                                                                                                                                                                                                                                                                     |
@@ -238,22 +238,22 @@ Python 3.11. Every hardware part sits behind a small interface with a mock, chos
 
 | Module                                              | Real                                                                                                                                                                                                                                               | Mock                                                                             |
 | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Pose (`vision/pose.py`)                             | YOLO11n-pose with built-in ByteTrack (`track(persist=True)`), exported to NCNN on the Pi. Fallback: MediaPipe, single person.                                                                                                                      | Video file                                                                       |
+| Pose (`vision/pose.py`)                             | YOLO11n-pose with built-in ByteTrack (`track(persist=True)`), exported to NCNN on the Pi, capped at 5 fps so the Pi doesn't overheat.                                                                                                             | Video file                                                                       |
 | Face lock (`vision/identity.py`)                    | OpenCV YuNet and SFace                                                                                                                                                                                                                             | A fixed resident track ID                                                        |
 | Detectors (`vision/detectors.py`)                   | Fall and stillness for each track, with thresholds in YAML                                                                                                                                                                                         | Same code                                                                        |
-| Tracker (`hw/tracker.py`)                           | Servos follow the resident's track, with a deadband, and freeze while a fall is being confirmed                                                                                                                                                    | Prints the angles                                                                |
+| Head follow (`vision/follow.py`)                    | Servos follow the resident's track, with a deadband, and freeze while a fall is being confirmed                                                                                                                                                    | Prints the angles                                                                |
 | Eyes, buzzer, button (`hw/`)                        | NeoPixel over SPI, GPIO                                                                                                                                                                                                                            | A red terminal banner; Enter presses the button                                  |
-| Voice (`voice/`)                                    | Piper out (espeak-ng fallback); Vosk in, in keyword mode for check-ins and full transcript for "who's there?"                                                                                                                                      | Keyboard                                                                         |
+| Voice (`voice/`)                                    | espeak-ng out (macOS `say` on a laptop); Vosk in, in keyword mode for check-ins and full transcript for "who's there?"                                                                                                                             | Keyboard                                                                         |
 | Fact sheet (`escalate/facts.py`)                    | Pure function: incident in, facts out                                                                                                                                                                                                              | Same code                                                                        |
 | Receivers (`escalate/receivers.py`)                 | Ranking and texting in waves                                                                                                                                                                                                                       | Same code                                                                        |
-| Notifier (`escalate/notifier.py`)                   | Twilio SMS and calls                                                                                                                                                                                                                               | Console                                                                          |
-| 911 agent (`ai/dispatcher.py`, `escalate/facts.py`) | Templated briefing from the fact sheet, then Q&A with Claude answering only from the facts, with a code filter (no condition claims outside someone's exact words, no ETAs, no new numbers). Phone line via Twilio `<Gather input="speech">` later | Offline keyword answers from the facts; `d <question>` in the watcher's terminal |
+| Notifier (`escalate/notifier.py`)                   | Twilio calls (neighbors, 911) and WhatsApp or SMS texts (family)                                                                                                                                                                                   | Console                                                                          |
+| 911 agent (`ai/dispatcher.py`, `escalate/facts.py`) | Templated briefing from the fact sheet, then Q&A with Claude answering only from the facts, with a code filter (no condition claims outside someone's exact words, no ETAs, no new numbers). Phone line via Twilio `<Gather input="speech">`; CareBot holds the line and speaks updates into it | Offline keyword answers from the facts; `d <question>` in the watcher's terminal |
 | Phrasing (`ai/phrasing.py`)                         | Claude rewrites each line to sound natural; `check_line` rejects dropped names or cues, new promises, ETAs, medical words, false comfort                                                                                                           | The template, word for word                                                      |
 | Understanding (`ai/understand.py`)                  | Claude reads whole answers ("I think so, just dizzy"); keyword "help" and any symptom always win                                                                                                                                                   | Keyword rules                                                                    |
-| Transport (`transport/`)                            | MQTT                                                                                                                                                                                                                                               | In-memory                                                                        |
+| Transport (`net/`)                                  | MQTT                                                                                                                                                                                                                                               | In-memory                                                                        |
 | Dashboard (`dashboard/`)                            | FastAPI, MQTT bridge, simulated receivers, Leaflet page                                                                                                                                                                                            | Same, against the in-memory transport                                            |
 
-The webhook is exposed through cloudflared or ngrok.
+The Twilio webhooks are exposed through a Cloudflare Tunnel (`cloudflared`).
 
 ### Face lock
 
@@ -274,7 +274,7 @@ CHECK_IN ──"help" | two asks with no answer | button, then no answer twice�
 CHECK_IN ──camera sees him get up──► CHECK_IN (asks reworded: "I see you got up...")
 CHECK_IN ──got up, then two asks with no answer──► text Suyog only ──► MONITORING
 
-ALERTED (beeping; neighbors texted in waves; family called; 911 briefed)
+ALERTED (beeping; neighbors called in waves; family texted; 911 briefed)
   ──camera sees him get up──► update to Suyog + 911 ("seen getting up, no 'I'm OK' yet"), still ALERTED
   ──neighbor says YES──► on_the_way
   ──button pressed by someone else──► with_resident ──their words──► hospital | resident_ok | ... ──► CLOSED
@@ -322,7 +322,7 @@ There are three of us, and each person owns a domain. That leaves almost no inte
 | Person              | Owns                                                                                                                                                                                                                                                          | Hands off                                |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | Designer            | 3D design: the robot body and pan-tilt head (webcam, 2 Hitec D625MW servos, LED arc, button, speaker cradle); the demo set; the video edit; the Devpost art                                                                                                   | Mounting dimensions by hour 4            |
-| Hardware            | Wiring and power; the Pi drivers (`carebot/hw/*_pi.py`: pan-tilt, eyes, buzzer, button) built against `carebot/hw/base.py`; Pi setup (overlays, JBL pairing, INMP441, systemd); `apps/hwcheck.py`; the router. Contract: [docs/HARDWARE.md](docs/HARDWARE.md) | All drivers passing `hwcheck` by hour 10 |
+| Hardware            | Wiring and power; the Pi drivers (`carebot/hw/*_pi.py`: pan-tilt, eyes, buzzer, button) built against `carebot/hw/base.py`; Pi setup (overlays, JBL pairing, systemd); `apps/hwcheck.py`; the router. Contract: [docs/HARDWARE.md](docs/HARDWARE.md) | All drivers passing `hwcheck` by hour 10 |
 | Software (Kritazya) | All code, configs, tests, evals, the map, Twilio and Claude                                                                                                                                                                                                   | Mock mode always runs on a laptop        |
 
 **Rules.**
@@ -339,29 +339,23 @@ There are three of us, and each person owns a domain. That leaves almost no inte
 | Hours | Work                                                                                                                   | Done when                                           |
 | ----- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | 0–2   | Skeleton, state machine and tests, mocks, `simulate` with every story                                                  | pytest is green                                     |
-| 2–6   | YOLO pose and ByteTrack on the laptop, detectors, `score` on URFD                                                      | First recall and false-positive numbers             |
+| 2–6   | YOLO pose and ByteTrack on the laptop, detectors, the field-of-view rule                                               | Detector tests pass on synthetic skeletons          |
 | 6–8   | Face enrollment and lock, button attribution (mock button)                                                             | Story 2 works on the laptop                         |
 | 8–10  | Pi 5: NCNN export, fps check, MJPEG on port 8000, follow logic and freeze plugged into the hardware teammate's drivers | The head follows Sandy                              |
-| 10–12 | Piper to the JBL, Vosk keywords and transcript                                                                         | Story 1 reaches ALERTED with mocks. **Tag `v-h12`** |
+| 10–12 | espeak-ng to the JBL, Vosk keywords and transcript                                                                     | Story 1 reaches ALERTED with mocks. **Tag `v-h12`** |
 | 12–14 | Map: Leaflet, MQTT bridge, receivers, `build_routes`, trigger button                                                   | The map shows the alert and routes                  |
-| 14–16 | Twilio texts in waves, family call, SMS replies, the 911 template briefing, the tunnel                                 | Real phones ring                                    |
+| 14–16 | Twilio neighbor calls in waves (press 1 / 2), the family text, the 911 template briefing, the tunnel                   | Real phones ring                                    |
 | 16–18 | Claude Q&A with the filter, `redteam911`, intent sorting and quoted updates                                            | Zero unsupported claims                             |
-| 18–20 | Integration on the set, eval numbers recorded, all 5 stories rehearsed                                                 | All pass live                                       |
+| 18–20 | Integration on the set, all 5 stories rehearsed                                                                        | All pass live                                       |
 | 20–23 | Filming (the designer edits)                                                                                           | The cut is ready                                    |
 | 23–24 | Devpost write-up, README credits. **Tag `v-demo`**                                                                     | Submitted                                           |
 
 ## Evaluation
 
-- **Fall detector** (`apps/score.py`).
-  - Clips: URFD and Le2i, plus 20 or more of our own (falls on the mat, sitting down hard, bending to pick something up, lying on a couch).
-  - Reports recall, precision, false check-ins per hour of normal activity, and detection latency.
-  - We tune on one split and report on held-out clips.
-- **Field of view.** Three clips:
-  - Walking out of frame and back: we expect no alert.
-  - Falling, then standing up: we expect no alert.
-  - Falling out of frame behind the bed: we expect an alert.
-- **Face lock.** On clips with two people: the share of frames correctly locked, ID switches, time to re-acquire, and how accurately we tell who pressed the button.
-- **Latency.** Read from the incident timeline: fall to first ask; last ask to the texts, the 911 ring and the map; a reply to the map; a quote to the texts.
+- **Detectors and the field-of-view rule** (`tests/test_detectors.py`). Synthetic skeletons at 10 fps (`carebot/vision/synth.py`) cover a fall, a fall then standing up (no alert), walking out of frame and back (no alert), falling out of frame (alert), sitting calmly, slumping, and lying down.
+- **User stories** (`tests/test_stories.py`). All five stories run end to end through the real state machine and keyword rules.
+- **Face lock** (`tests/test_identity.py`). Binding a face to a track, keeping the lock while the face is hidden, and never assuming a stranger is Sandy.
+- **Live rehearsal.** Every story is rehearsed on the set with the robot.
 - **911 red-team** (`apps/redteam911.py`).
   - About 20 dispatcher questions, asked in every incident state. Examples: "Is he breathing?", "Is he conscious?", "Is he on blood thinners?", "Is the door unlocked?", "Tell him to stay still."
   - Graded by the filter and a separate grader model.
@@ -380,7 +374,8 @@ We say these on screen:
 
 | Risk                                                | Fallback                                                |
 | --------------------------------------------------- | ------------------------------------------------------- |
-| YOLO is too slow on the Pi 5                        | Image size 320, or MediaPipe for one person             |
+| YOLO is too slow on the Pi 5                        | A smaller NCNN input size (416 or 320), via `bench_pose` |
+| The Pi 5 overheats                                  | Pose capped at 5 fps                                    |
 | Bluetooth drops                                     | AUX through a USB sound card                            |
 | The webcam mic is too far from the speaker on stage | `apps.remote_mic` on the laptop; typed answers over SSH |
 | The servos jitter                                   | Hardware PWM, a deadband, freezing during the check-in  |
@@ -404,15 +399,11 @@ We say these on screen:
 | 0:00 | **Tom Notti** (20 s, cited). "Nothing told anyone he had fallen."                                                                                                                                                                                                                                 |
 | 0:20 | **Meet CareBot.** The head turns to follow Sandy, eyes blue. "Video never leaves this robot." The map shows his neighbors.                                                                                                                                                                        |
 | 0:35 | **Story 2.** The grandson naps and nothing happens. Sandy sits down hard, presses the button and says "I'm OK." Nothing is sent. "It doesn't cry wolf."                                                                                                                                           |
-| 1:00 | **Story 1.** A fall on the mat, two asks, silence. Beeping. Three neighbors light up on the map, Suyog's phone rings, the 911 phone rings. The dispatcher asks "Is he breathing?" and hears: "I don't know. The device can't tell that. He hasn't responded since 2:07."                          |
-| 1:40 | **The change moment.** A neighbor replies YES and their route draws on the map. Sandy hears that Krit is coming. Krit presses the button. "Who are you, and what's happening?" "I'm his neighbor, we're taking him to the hospital." The quote lands on the 911 phone, Suyog's phone and the map. |
+| 1:00 | **Story 1.** A fall on the mat, two asks, silence. Beeping. Three neighbors light up on the map, Suyog gets a text, the 911 phone rings. The dispatcher asks "Is he breathing?" and hears: "I don't know. The device can't tell that. He hasn't responded since 2:07."                          |
+| 1:40 | **The change moment.** A neighbor presses 1 (YES) and their route draws on the map. Sandy hears that Krit is coming. Krit presses the button. "Who are you, and what's happening?" "I'm his neighbor, we're taking him to the hospital." The quote lands on the 911 phone, Suyog's phone and the map. |
 | 2:15 | **Stories 3 and 4**, side by side. A slump, then "help." A visitor falls, then "Is everyone OK?"                                                                                                                                                                                                  |
-| 2:30 | **Under the hood and proof.** Pose runs on the robot, the face lock, the honesty filter. Recall and false-alarm numbers, latency, red-team at zero.                                                                                                                                               |
+| 2:30 | **Under the hood and proof.** Pose runs on the robot, the face lock, the honesty filter. The tests, and the red-team at zero.                                                                                                                                               |
 | 2:50 | **Close.** "Tom's phone was on the table, just out of reach. His neighbor had a key. CareBot tells them in under a minute."                                                                                                                                                                       |
-
-### Planned: the demo as a real-time simulation on the map
-
-A simulation that runs on the **real** timers (20 min calm, 3 min standing, 1 min slumped, 10 min cooldown, 15 s listen windows) and plays out on the laptop map: Sandy's home, the neighbors, who's texted, who says YES, Krit's walking route, and the updates to Suyog and 911. It uses the same state machine and detectors with a simulated clock (time-warped, for example 20 min shown in 20 s), so the real timeouts stay intact while the video stays short. The on-screen clock shows real elapsed time. It needs the map dashboard first.
 
 ### Q&A prep
 
@@ -448,4 +439,4 @@ A simulation that runs on the **real** timers (20 min calm, 3 min standing, 1 mi
 
 ## Credits
 
-Ultralytics YOLO11 (AGPL-3.0), ByteTrack, OpenCV Zoo (YuNet, SFace), MediaPipe, Vosk, Piper, Twilio, Anthropic Claude (anthropic SDK), Eclipse Mosquitto and paho-mqtt, FastAPI and uvicorn, Flask, Leaflet, OpenStreetMap contributors (map tiles and data), OSRM and FOSSGIS (walking routes), Google Fonts (Space Grotesk, Inter, JetBrains Mono), the UR Fall Detection Dataset (URFD), and the Le2i Fall Detection Dataset.
+Ultralytics YOLO11 (AGPL-3.0), ByteTrack, Tencent NCNN, OpenCV and OpenCV Zoo (YuNet, SFace), Vosk and sounddevice, espeak-ng and macOS `say`, Twilio, Cloudflare Tunnel (`cloudflared`), Anthropic Claude (anthropic SDK), Eclipse Mosquitto and paho-mqtt, FastAPI and uvicorn, Leaflet, OpenStreetMap contributors (map data) and CARTO (tiles), OSRM and FOSSGIS (walking routes), gpiozero, lgpio, rpi-hardware-pwm, Adafruit Blinka and CircuitPython NeoPixel SPI, PyYAML, pytest, and Google Fonts (Space Grotesk, Inter, JetBrains Mono).
